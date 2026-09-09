@@ -1,0 +1,65 @@
+# Project Amanda -- orchestrator configuration.
+# Secrets do not belong here; they come from the environment (build plan 25).
+
+bridge:
+  host: 127.0.0.1        # loopback only -- do not expose the avatar bridge
+  port: 8765
+  protocol_version: 1
+  reconnect_backoff_ms: [250, 500, 1000, 2000, 5000]
+
+claude:
+  model: claude-sonnet-5   # held in config, never hard-coded (build plan 4)
+  max_tokens: 1024
+  stream: true
+
+performance:
+  # A second, deliberately cheap call classifies the performance so it never
+  # contaminates the spoken text (build plan 6, option A).
+  classifier_model: claude-haiku-4-5-20251001
+  classifier_max_tokens: 128
+
+  # Phase 4 starts with a subset of the preset vocabulary.
+  enabled_presets:
+    - neutral_attentive
+    - warm
+    - considering
+    - mildly_amused
+    - concerned
+    - uncertain
+    - surprised
+
+  # Ceilings, not targets. Start every coefficient lower than feels necessary
+  # (build plan 18); the failure mode of AI avatars is exaggerated activity.
+  max_intensity: 0.45
+  default_transition_ms: 450
+
+  smoothing:
+    decay_per_second: 0.35   # emotional inertia
+    hysteresis: 0.12         # resist preset flapping between utterances
+    min_hold_ms: 900         # never change preset faster than this
+
+gaze:
+  # Fractions of time spent looking at the user, per conversation state.
+  eye_contact:
+    listening: 0.80
+    thinking: 0.25
+    speaking: 0.60
+    idle: 0.15
+  shift_interval_ms: [1200, 4500]   # stochastic within bounds
+  transition_ms: 220
+
+idle:
+  blink_interval_ms: [2400, 6800]   # independent of speech boundaries
+  breathing_period_ms: 4200
+  head_drift_amplitude: 0.04
+  posture_shift_interval_ms: [18000, 45000]
+
+speech:
+  # Phrase segmentation before TTS (build plan 12).
+  min_phrase_chars: 40
+  flush_timeout_ms: 600
+  cancel_fade_ms: 80
+
+privacy:
+  retain_microphone_audio: false
+  log_transcripts: false

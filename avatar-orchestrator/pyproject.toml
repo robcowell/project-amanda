@@ -1,0 +1,46 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "amanda-orchestrator"
+version = "0.1.0"
+description = "Conversation orchestrator for Project Amanda: Claude, speech and a performance director driving a real-time digital human."
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic>=0.40",
+    "websockets>=13.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+# Audio and speech land in phase 2; kept out of the base install so the
+# protocol and Claude spine stay testable on a headless machine.
+audio = [
+    "sounddevice>=0.4",
+    "numpy>=1.26",
+    "webrtcvad>=2.0",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+amanda = "amanda.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/amanda"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests", "tools"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

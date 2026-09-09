@@ -1,0 +1,18 @@
+# Voice identities. The provider is deliberately indirect so engines can be
+# swapped without touching the rest of the system (build plan 4).
+
+default: amanda
+
+voices:
+  amanda:
+    provider: null          # set when the first TTS backend lands (epic 3)
+    voice_id: null
+    sample_rate: 24000
+    format: pcm_s16le
+    # Pace is a performance control, not a fixed property of the voice.
+    pace:
+      neutral_attentive: 1.00
+      considering: 0.94
+      warm: 0.97
+      explaining: 1.02
+      serious: 0.95
