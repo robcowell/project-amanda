@@ -225,9 +225,9 @@ something. Measured on one prompt through this pipeline, September 2026:
 
 | configuration | first token | total |
 |---|---|---|
-| `claude-opus-5`, effort low *(shipped default)* | 2234 ms | 3006 ms |
+| `claude-opus-5`, effort low | 2234 ms | 3006 ms |
 | `claude-opus-5`, thinking disabled | 1542 ms | 3071 ms |
-| `claude-sonnet-5`, effort low | 669 ms | 1695 ms |
+| `claude-sonnet-5`, effort low *(shipped default)* | 669 ms | 1695 ms |
 | `claude-haiku-4-5` | 658 ms | 1053 ms |
 
 Three things worth reading off that. Opus spends about 2.2 seconds before the
@@ -237,8 +237,9 @@ it moves the wait rather than removing it, and on Opus 5 it risks `<thinking>`
 tags leaking into text that is about to be spoken aloud. And the cheaper models
 are not marginally faster but **three times** faster to first token.
 
-Which to run is a product decision, not a technical one, and it is one line in
-`config/avatar.yaml`. Fast mode was not measurable here: it has a rate limit
+Sonnet 5 is the shipped default on those grounds: for a conversational
+companion, three times quicker to speak beats the deeper reasoning nobody is
+waiting for. Change `claude.model` to go back. Fast mode was not measurable here: it has a rate limit
 separate from standard Opus and this key had no allocation, returning 429.
 
 Single samples on one prompt — re-measure before trusting the small
@@ -281,9 +282,11 @@ Four decisions worth knowing before you change anything:
 `conversation.py` records that partial text rather than what Claude generated —
 the tail was cancelled before synthesis, so as far as the conversation is
 concerned it was never said — and follows it with a mid-conversation system
-message telling Claude it was cut off. That note needs a model that supports
-mid-conversation system messages: Opus 5 does, **Sonnet 5 returns a 400**, so
-set `interruption_notes: false` if you change model.
+message telling Claude it was cut off. That note needs a model supporting
+mid-conversation system messages. Tested against the live API on 2026-09-10,
+Opus 5 and Sonnet 5 both accept one — the documentation lists Sonnet 5 as
+unsupported and is wrong, or was. Older models do reject it, so
+`interruption_notes: false` remains the escape hatch.
 
 ## Speech
 

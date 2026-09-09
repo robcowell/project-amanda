@@ -9,7 +9,10 @@ bridge:
 
 # Keys map directly onto amanda.claude.client.ClaudeSettings.
 claude:
-  model: claude-opus-5     # held in config, never hard-coded (build plan 4)
+  # Chosen for latency: measured at ~670ms to first token against ~2200ms for
+  # claude-opus-5 on the same prompt, and time to first token is the one stage
+  # nothing downstream can hide. See the README's latency table.
+  model: claude-sonnet-5   # held in config, never hard-coded (build plan 4)
 
   # A spoken turn is short. A reply long enough to hit this cap has already
   # stopped being conversation.

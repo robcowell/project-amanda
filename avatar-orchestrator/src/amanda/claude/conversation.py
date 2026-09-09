@@ -34,9 +34,11 @@ class Conversation:
     #: answer when conversations get long enough to matter.
     max_messages: int | None = 200
 
-    #: Append an operator note after an interruption. Requires a model that
-    #: supports mid-conversation system messages -- Opus 5 does, Sonnet 5 does
-    #: not and returns a 400. Turn this off if the configured model changes.
+    #: Append an operator note after an interruption. Needs a model that
+    #: supports mid-conversation system messages. Tested 2026-09-10: Opus 5 and
+    #: Sonnet 5 both accept one, contrary to the documentation, which lists
+    #: Sonnet 5 as unsupported. Older models do reject it with a 400, so the
+    #: switch stays.
     interruption_notes: bool = True
 
     _messages: list[dict[str, Any]] = field(default_factory=list)
