@@ -148,3 +148,28 @@ def test_names_are_returned_but_never_values(monkeypatch, tmp_path):
     monkeypatch.delenv("SECRET_THING", raising=False)
 
     assert config.load_env(env) == ["SECRET_THING"]
+
+
+def test_a_later_definition_beats_an_earlier_one(monkeypatch, tmp_path):
+    """What somebody means when they paste a new key below the old one rather
+    than replacing it. Applying line by line would keep the stale value."""
+    env = tmp_path / ".env"
+    env.write_text("ANTHROPIC_API_KEY=old-and-revoked\nANTHROPIC_API_KEY=new-and-working\n")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    config.load_env(env)
+    import os
+
+    assert os.environ["ANTHROPIC_API_KEY"] == "new-and-working"
+
+
+def test_a_duplicate_is_warned_about(monkeypatch, tmp_path, caplog):
+    import logging
+
+    env = tmp_path / ".env"
+    env.write_text("KEY_A=one\nKEY_A=two\n")
+    monkeypatch.delenv("KEY_A", raising=False)
+
+    with caplog.at_level(logging.WARNING):
+        config.load_env(env)
+    assert "KEY_A" in caplog.text

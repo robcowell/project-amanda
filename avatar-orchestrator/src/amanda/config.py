@@ -100,12 +100,18 @@ def load_env(path: Path | None = None) -> list[str]:
     if not path.is_file():
         return []
 
-    applied: list[str] = []
     try:
         lines = path.read_text().splitlines()
     except OSError as exc:
         log.warning("could not read %s: %s", path, exc)
         return []
+
+    # Parsed into a dict first so that a later definition beats an earlier one,
+    # which is what someone means when they paste a new key below the old one
+    # rather than replacing it. Applying line by line would silently keep the
+    # stale value.
+    parsed: dict[str, str] = {}
+    duplicated: set[str] = set()
 
     for raw in lines:
         line = raw.strip()
@@ -122,12 +128,19 @@ def load_env(path: Path | None = None) -> list[str]:
         value = value.strip()
         if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
             value = value[1:-1]
-        if not value or name in os.environ:
+        if not value:
             continue
 
-        os.environ[name] = value
-        applied.append(name)
+        if name in parsed:
+            duplicated.add(name)
+        parsed[name] = value
 
+    for name in sorted(duplicated):
+        log.warning("%s is defined more than once in %s; using the last", name, path.name)
+
+    applied = [name for name in parsed if name not in os.environ]
+    for name in applied:
+        os.environ[name] = parsed[name]
     return applied
 
 
