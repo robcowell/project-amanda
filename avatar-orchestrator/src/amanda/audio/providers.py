@@ -247,21 +247,32 @@ class _CommandStream(SynthesisStream):
         voice: VoiceSettings,
         argv: Sequence[str],
         expects_wav: bool,
+        text_on_stdin: bool = False,
     ) -> None:
         super().__init__(text, voice)
         self._argv = list(argv)
         self._expects_wav = expects_wav
+        self._text_on_stdin = text_on_stdin
         self._process: asyncio.subprocess.Process | None = None
 
     async def _produce(self) -> AsyncIterator[bytes]:
         try:
             self._process = await asyncio.create_subprocess_exec(
                 *self._argv,
+                stdin=asyncio.subprocess.PIPE if self._text_on_stdin else None,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
         except FileNotFoundError as exc:
             raise SynthesisError(f"engine not found: {self._argv[0]}") from exc
+
+        if self._text_on_stdin:
+            # Written and closed before reading. Safe because a phrase is far
+            # smaller than a pipe buffer -- interleaving would be required only
+            # for input large enough to fill one, which segmentation prevents.
+            self._process.stdin.write(self.text.encode())
+            await self._process.stdin.drain()
+            self._process.stdin.close()
 
         assert self._process.stdout is not None
         header = _WavHeader() if self._expects_wav else None
@@ -320,6 +331,8 @@ class CommandSynthesizer:
     expects_wav: bool = True
     #: Words per minute passed as `{rate}`, before the pace multiplier.
     base_rate: int = 165
+    #: Some engines take the text on stdin rather than as an argument.
+    text_on_stdin: bool = False
     label: str = "command"
     _: dict = field(default_factory=dict, repr=False)
 
@@ -328,13 +341,18 @@ class CommandSynthesizer:
         return self.label
 
     def synthesize(self, text: str, voice: VoiceSettings) -> SynthesisStream:
+        pace = max(0.25, voice.pace)
         substitutions = {
             "text": text,
-            "rate": str(round(self.base_rate * max(0.25, voice.pace))),
             "voice": voice.voice_id or "",
+            # Engines express speed in one of two ways, so offer both and let
+            # the argv template pick: words per minute, or a duration multiplier
+            # where larger is slower.
+            "rate": str(round(self.base_rate * pace)),
+            "length_scale": f"{1.0 / pace:.3f}",
         }
         argv = [argument.format(**substitutions) for argument in self.argv]
-        return _CommandStream(text, voice, argv, self.expects_wav)
+        return _CommandStream(text, voice, argv, self.expects_wav, self.text_on_stdin)
 
 
 class _WavHeader:

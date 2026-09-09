@@ -292,6 +292,31 @@ Two providers ship, and neither is the one this will run on:
 | `ToneSynthesizer` | Audible, correctly-timed audio that is not speech. Lets the whole pipeline be run and heard before an engine is chosen. |
 | `CommandSynthesizer` | Any CLI engine — espeak-ng, Piper, macOS `say` — via an argv template. No code per engine. |
 
+### Piper
+
+Local neural voices, and the best thing available before a cloud engine:
+
+```sh
+pip install piper-tts
+python -m piper.download_voices --download-dir voices en_GB-jenny_dioco-medium
+python -m amanda.main --scripted          # auto-detects it
+```
+
+Models go in `voices/` (gitignored) and are found automatically; `--voice` picks
+a specific one when there are several.
+
+Piper runs **in-process, not as a subprocess**, and that is a measurement rather
+than a preference. Each `piper` CLI invocation spends about 3.5 seconds loading
+the interpreter, onnxruntime and the model before producing a sample — a
+four-character phrase costs 3.68s wall for 0.50s of audio. Spawning one per
+phrase would put that on every phrase. Loaded once and kept, the same model runs
+at 8–9x realtime on a 2017 ultrabook. The load happens at startup via `warm()`,
+because paying it on the first phrase of the first conversation is the one place
+it would actually be felt.
+
+Quality tiers are not free: `medium` voices run at ~9x realtime, `high` at
+~1.8x. Prefer `medium` unless you have measured that you can afford otherwise.
+
 `audio/engines.py` is the registry: an argv template and, critically, the sample
 rate each engine actually emits. A mismatch is **refused rather than resampled**
 — playing 22050 Hz audio at 24000 makes a chipmunk that is easy to blame on the

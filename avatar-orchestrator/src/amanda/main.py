@@ -110,6 +110,15 @@ class Session:
         )
             print("type a message; type again while it speaks to interrupt; ctrl-d to quit\n")
 
+            # Neural engines load a model that takes seconds. Paying that on
+            # the first phrase of the first turn would put it straight into the
+            # latency budget; paying it here costs nobody anything.
+            warm = getattr(self.synthesizer, "warm", None)
+            if warm is not None:
+                print("warming the voice model...", end="", flush=True)
+                await warm()
+                print(" ready\n")
+
             self.bridge.send(SessionStarted(session_id=self.session_id))
             self.bridge.send(UserDetected(present=True))
             self.enter(ConversationState.ATTENTIVE)

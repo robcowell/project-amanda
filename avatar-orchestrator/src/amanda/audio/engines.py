@@ -12,12 +12,16 @@ is the whole contract.
 
 from __future__ import annotations
 
+import importlib.util
 import shutil
+import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from amanda.audio.providers import CommandSynthesizer, ToneSynthesizer
-from amanda.audio.tts import SpeechSynthesizer, VoiceSettings
+from amanda.audio.tts import SpeechSynthesizer, SynthesisError, VoiceSettings
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,6 +36,13 @@ class Engine:
     expects_wav: bool = True
     #: Words per minute passed as {rate}, before the pace multiplier.
     base_rate: int = 165
+    #: Some engines read the text from stdin rather than argv.
+    text_on_stdin: bool = False
+    #: Name of a native in-process provider, when shelling out is the wrong
+    #: shape -- see the piper entry for why that is not merely a preference.
+    native: str | None = None
+    #: Needs a model file, so being on PATH is not enough to call it installed.
+    needs_model: bool = False
     note: str = ""
 
 
@@ -53,13 +64,17 @@ ENGINES: dict[str, Engine] = {
         argv=("espeak", "--stdout", "-s", "{rate}", "{text}"),
         sample_rate=22_050,
     ),
-    # Piper's rate is a property of the downloaded model, commonly 22050 for the
-    # medium voices and 16000 for the low ones. Override --rate to match yours.
+    # Run in-process, not as a subprocess: each `piper` invocation spends about
+    # 3.5s loading before it synthesises, which would land on every phrase.
+    # Loaded once it runs at roughly 8x realtime. The sample rate belongs to the
+    # model -- 22050 for medium and high voices, 16000 for low -- so pass --rate
+    # if yours differs.
     "piper": Engine(
-        argv=("piper", "--model", "{voice}", "--output-raw", "--", "{text}"),
+        argv=None,
+        native="piper",
         sample_rate=22_050,
-        expects_wav=False,
-        note="local neural voices; --voice is a path to the .onnx model",
+        needs_model=True,
+        note="local neural voices; put a .onnx model in voices/ or pass --voice",
     ),
     "say": Engine(
         argv=("say", "-r", "{rate}", "-o", "-", "--data-format=LEI16@22050", "{text}"),
@@ -75,12 +90,55 @@ ENGINES: dict[str, Engine] = {
 PREFERENCE: tuple[str, ...] = ("piper", "say", "espeak-ng", "espeak", "tone")
 
 
+#: Where to look for downloaded voice models, in order.
+MODEL_DIRS: tuple[Path, ...] = (
+    Path("voices"),
+    Path.home() / ".local" / "share" / "piper-voices",
+)
+
+
+def which(command: str) -> str | None:
+    """Find an executable on PATH, or beside the running interpreter.
+
+    The second half matters: a console script installed into a virtualenv lives
+    in the same bin directory as the interpreter, and running
+    `.venv/bin/python -m amanda.main` does not put that directory on PATH. Without
+    this, an engine pip-installed into the venv looks absent.
+    """
+    found = shutil.which(command)
+    if found:
+        return found
+    candidate = Path(sys.executable).parent / command
+    return str(candidate) if candidate.exists() else None
+
+
+def find_model(directories: Sequence[Path] = MODEL_DIRS) -> Path | None:
+    """The first voice model on disk, if any.
+
+    Convenience with a purpose: an engine that needs a model is not really
+    installed until one is present, and asking for `--voice` every time when
+    exactly one model exists is friction for no benefit.
+    """
+    for directory in directories:
+        if directory.is_dir():
+            models = sorted(directory.glob("*.onnx"))
+            if models:
+                return models[0]
+    return None
+
+
 def installed(name: str) -> bool:
     """Whether this engine can actually run here."""
     engine = ENGINES.get(name)
     if engine is None:
         return False
-    return engine.argv is None or shutil.which(engine.argv[0]) is not None
+    if engine.native == "piper":
+        return importlib.util.find_spec("piper") is not None and find_model() is not None
+    if engine.argv is None:
+        return True
+    if which(engine.argv[0]) is None:
+        return False
+    return not engine.needs_model or find_model() is not None
 
 
 def available() -> list[str]:
@@ -117,16 +175,32 @@ def build(
         raise KeyError(f"unknown engine {name!r}. Known engines: {known}")
 
     engine = ENGINES[name]
+    if engine.needs_model and voice_id is None:
+        model = find_model()
+        if model is None:
+            raise SynthesisError(
+                f"{name} needs a voice model. Download one into voices/ with:\n"
+                f"  python -m piper.download_voices --download-dir voices "
+                f"en_GB-jenny_dioco-medium"
+            )
+        voice_id = str(model)
+
     voice = VoiceSettings(
         voice_id=voice_id,
         sample_rate=sample_rate or engine.sample_rate,
         pace=pace,
     )
 
+    if engine.native == "piper":
+        from amanda.audio.piper_provider import PiperSynthesizer
+
+        return PiperSynthesizer(model=Path(voice.voice_id or ""), **overrides), voice
+
     if engine.argv is None:
         return ToneSynthesizer(**overrides), voice
 
     argv = list(engine.argv)
+    argv[0] = which(argv[0]) or argv[0]
     if voice_id is None:
         # Drop the flag and its value rather than passing an empty voice, which
         # most engines reject.
@@ -137,6 +211,7 @@ def build(
             argv=argv,
             expects_wav=engine.expects_wav,
             base_rate=engine.base_rate,
+            text_on_stdin=engine.text_on_stdin,
             label=name,
         ),
         voice,
