@@ -585,9 +585,14 @@ def test_the_shipped_config_builds_valid_settings():
     config = yaml.safe_load((Path(__file__).parent.parent / "config" / "avatar.yaml").read_text())
     settings = ClaudeSettings(**config["claude"])
 
-    assert settings.model == "claude-opus-5"
+    # Deliberately not asserting a particular model: which one to run is a
+    # product decision that changes on measurement, and a test that pins it
+    # fails on every legitimate config change without catching a real defect.
+    # What matters is that the file builds settings the client can use.
+    assert settings.model.startswith("claude-")
     assert settings.effort in {"low", "medium", "high", "xhigh", "max"}
     assert settings.max_tokens > 0
+    assert isinstance(settings.fallbacks, bool)
 
 
 def test_configured_model_ids_carry_no_date_suffix():
