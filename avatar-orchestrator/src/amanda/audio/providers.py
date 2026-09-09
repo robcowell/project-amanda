@@ -124,8 +124,11 @@ class _ToneStream(SynthesisStream):
 
             # A falling pitch contour across the phrase, as in a statement.
             hz = self._fundamental * (1.0 + 0.10 * (1.0 - position)) * self.voice.pitch
-            # Formants drift with the syllable, so it articulates rather than
-            # holding one vowel for the whole phrase.
+            # Formants drift a little with the syllable. Measured, this moves
+            # the spectral centroid by about 40 Hz against roughly 500 Hz for
+            # real speech -- so it reads as a warbling drone with the rhythm of
+            # a sentence, not as articulation. Good enough for timing work,
+            # which is all this is for; use a real engine to judge anything else.
             shift = 1.0 + 0.16 * math.sin(2 * math.pi * seconds * syllable_hz * 0.5)
 
             # Rebuilt only when pitch or vowel has moved appreciably.
@@ -163,9 +166,12 @@ class _ToneStream(SynthesisStream):
 class ToneSynthesizer:
     """An audible stand-in with realistic duration and word timings.
 
-    It is not speech and is not trying to be. It exists so the pipeline can be
-    exercised end to end -- including hearing what an interruption sounds like --
-    without downloading a voice model or holding an API key.
+    It is not speech and is not trying to be: it is a drone with the rhythm and
+    length of a sentence, which is enough to judge timing, latency and where an
+    interruption lands. It exists for machines with no engine installed and no
+    API key.
+
+    If anything is installed, prefer it -- `engines.build("auto", ...)` does.
     """
 
     fundamental: float = 118.0

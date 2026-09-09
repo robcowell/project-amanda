@@ -12,6 +12,7 @@ is the whole contract.
 
 from __future__ import annotations
 
+import shutil
 from dataclasses import dataclass
 from typing import Any
 
@@ -68,6 +69,34 @@ ENGINES: dict[str, Engine] = {
 }
 
 
+#: Preference order when asked for "auto", best first. The stand-in is last
+#: because it is a placeholder: hearing it when a real engine is installed is a
+#: confusing default, not a safe one.
+PREFERENCE: tuple[str, ...] = ("piper", "say", "espeak-ng", "espeak", "tone")
+
+
+def installed(name: str) -> bool:
+    """Whether this engine can actually run here."""
+    engine = ENGINES.get(name)
+    if engine is None:
+        return False
+    return engine.argv is None or shutil.which(engine.argv[0]) is not None
+
+
+def available() -> list[str]:
+    return [name for name in PREFERENCE if installed(name)]
+
+
+def resolve(name: str) -> str:
+    """Turn "auto" into the best engine present, leaving any other name alone."""
+    if name != "auto":
+        return name
+    for candidate in PREFERENCE:
+        if installed(candidate):
+            return candidate
+    return "tone"
+
+
 def build(
     name: str,
     *,
@@ -82,6 +111,7 @@ def build(
     because a mismatch is refused rather than resampled -- making the default
     correct is cheaper than making the error message good.
     """
+    name = resolve(name)
     if name not in ENGINES:
         known = ", ".join(sorted(ENGINES))
         raise KeyError(f"unknown engine {name!r}. Known engines: {known}")
@@ -125,10 +155,11 @@ def _drop_voice_flag(argv: list[str]) -> list[str]:
 
 def describe() -> list[str]:
     """One line per engine, for --help style listings."""
-    lines = []
+    lines = [f"auto: pick the best installed ({resolve('auto')} here)"]
     for name, engine in sorted(ENGINES.items()):
+        mark = "" if installed(name) else " [not installed]"
         detail = f"{engine.sample_rate} Hz"
         if engine.note:
             detail += f" -- {engine.note}"
-        lines.append(f"{name:<10} {detail}")
+        lines.append(f"{name:<10} {detail}{mark}")
     return lines

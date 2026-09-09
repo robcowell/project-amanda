@@ -274,7 +274,7 @@ def main() -> int:
     parser.add_argument("--model", default="claude-opus-5")
     parser.add_argument("--effort", default="low")
     parser.add_argument(
-        "--engine", default="tone", choices=sorted(ENGINES),
+        "--engine", default="auto", choices=["auto", *sorted(ENGINES)],
         help="; ".join(describe()),
     )
     parser.add_argument("--voice", help="engine-specific voice id or model path")

@@ -650,3 +650,52 @@ def test_pace_still_reaches_a_registry_built_engine():
     synthesizer, voice = build("espeak-ng", pace=1.5)
     stream = synthesizer.synthesize("hello", voice)
     assert "248" in stream._argv, "165 wpm scaled by 1.5"
+
+
+def test_auto_resolves_to_something_installed():
+    from amanda.audio.engines import available, installed, resolve
+
+    chosen = resolve("auto")
+    assert installed(chosen)
+    assert chosen == available()[0]
+
+
+def test_auto_prefers_a_real_engine_over_the_stand_in():
+    """The stand-in is a placeholder. Hearing it when a real engine is present
+    is a confusing default, not a safe one."""
+    from amanda.audio.engines import PREFERENCE
+
+    assert PREFERENCE[-1] == "tone"
+
+
+def test_the_stand_in_is_always_available():
+    """It has no external dependency, which is the point of it."""
+    from amanda.audio.engines import installed
+
+    assert installed("tone")
+
+
+def test_an_engine_that_is_not_on_the_path_is_not_available():
+    from amanda.audio.engines import ENGINES, Engine, installed
+
+    ENGINES["amanda-fake-engine"] = Engine(argv=("amanda-no-such-binary",), sample_rate=22_050)
+    try:
+        assert not installed("amanda-fake-engine")
+    finally:
+        del ENGINES["amanda-fake-engine"]
+
+
+def test_naming_an_engine_explicitly_still_wins():
+    from amanda.audio.engines import build
+
+    synthesizer, voice = build("tone")
+    assert synthesizer.name == "tone"
+    assert voice.sample_rate == 24_000
+
+
+async def test_auto_produces_working_audio():
+    from amanda.audio.engines import build
+
+    synthesizer, voice = build("auto")
+    pcm = await collect(synthesizer.synthesize("Testing one two three.", voice))
+    assert pcm_duration_ms(pcm, voice.sample_rate) > 500

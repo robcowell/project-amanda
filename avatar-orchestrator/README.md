@@ -140,9 +140,15 @@ the 1.4s gap rather than a verbal filler.
 Everything except the microphone, on a machine with no GPU and no API key.
 
 ```sh
-python3 tools/previz.py                               # http://127.0.0.1:8766/previz.html
-python3 -m amanda.main --scripted --engine espeak-ng  # in another terminal
+python3 tools/previz.py                # http://127.0.0.1:8766/previz.html
+python3 -m amanda.main --scripted      # in another terminal
 ```
+
+The voice defaults to the best engine installed on the machine — `espeak-ng` or
+Piper if present, and the built-in stand-in only if nothing else is. The
+stand-in is a drone with the rhythm of a sentence: fine for judging timing and
+where an interruption lands, useless for judging anything else. `--engine`
+overrides it and `--engine auto` reports what it picked.
 
 Type a message and the schematic face thinks, looks away, returns its gaze and
 speaks; type again while it is speaking and it is interrupted. `--scripted`

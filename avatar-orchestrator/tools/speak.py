@@ -123,7 +123,7 @@ def main() -> int:
     parser.add_argument("text", nargs="*", help="phrases to speak, one argument each")
     parser.add_argument("--devices", action="store_true", help="list output devices and exit")
     parser.add_argument(
-        "--engine", default="tone", choices=sorted(ENGINES),
+        "--engine", default="auto", choices=["auto", *sorted(ENGINES)],
         help="; ".join(describe()),
     )
     parser.add_argument("--argv", nargs="+", help="a full engine command, overriding --engine")
