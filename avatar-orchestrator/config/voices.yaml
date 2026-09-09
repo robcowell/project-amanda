@@ -46,10 +46,15 @@ voices:
     argv: null
     expects_wav: true
 
-    # Pace is a performance control, not a property of the voice. Staying near
-    # 1.0 is the norm -- a voice that audibly changes speed between sentences
-    # draws attention to itself.
-    pace:
+    # Base delivery speed, above 1.0 being faster. Note that Piper's
+    # length_scale is markedly non-linear: 1.1 shortens a phrase by under 3%
+    # and it takes roughly 1.4 before the change is clearly audible.
+    pace: 1.35
+
+    # Multipliers applied on top of the base, once the performance director
+    # exists. Staying near 1.0 is the norm -- a voice that audibly changes speed
+    # between sentences draws attention to itself.
+    pace_by_preset:
       neutral_attentive: 1.00
       listening: 1.00
       considering: 0.94

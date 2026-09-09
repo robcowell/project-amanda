@@ -59,3 +59,29 @@ def test_an_explicit_config_dir_does_not_fall_through(monkeypatch, tmp_path, cap
 
     assert config.config_dir() is None
     assert config.default_voice() is None
+
+
+def test_the_base_pace_is_read_from_config(monkeypatch, tmp_path):
+    (tmp_path / "voices.yaml").write_text(
+        "default: amanda\nvoices:\n  amanda:\n    model: cori-medium\n    pace: 1.35\n"
+    )
+    monkeypatch.setenv(config.CONFIG_ENV, str(tmp_path))
+    assert config.default_pace() == 1.35
+
+
+def test_a_missing_pace_is_None(monkeypatch, tmp_path):
+    (tmp_path / "voices.yaml").write_text("default: amanda\nvoices:\n  amanda:\n    model: x\n")
+    monkeypatch.setenv(config.CONFIG_ENV, str(tmp_path))
+    assert config.default_pace() is None
+
+
+def test_a_nonsense_pace_is_ignored_rather_than_fatal(monkeypatch, tmp_path):
+    (tmp_path / "voices.yaml").write_text(
+        "default: amanda\nvoices:\n  amanda:\n    pace: quite fast please\n"
+    )
+    monkeypatch.setenv(config.CONFIG_ENV, str(tmp_path))
+    assert config.default_pace() is None
+
+
+def test_the_shipped_config_sets_a_pace():
+    assert config.default_pace() is not None

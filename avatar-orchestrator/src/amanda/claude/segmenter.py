@@ -56,6 +56,14 @@ class PhraseSegmenter:
     #: own is a worse thing to synthesise than a slightly longer wait.
     min_phrase_chars: int = 40
 
+    #: The first phrase is allowed to be shorter, because it alone decides when
+    #: speech *starts*. Everything after it is spoken while earlier audio is
+    #: still playing, so its synthesis is hidden; the first one's is not, and it
+    #: sits on the critical path twice -- once waiting for the boundary and
+    #: again waiting for the engine. Still high enough that a phrase is a
+    #: clause and not an interjection.
+    first_phrase_chars: int = 24
+
     #: The backstop. Claude has been told not to produce markdown or code, but a
     #: phrase this long without punctuation means something has gone wrong and
     #: speaking late is worse than speaking imperfectly.
@@ -106,9 +114,10 @@ class PhraseSegmenter:
             if self._is_real_sentence_end(match):
                 return match.end()
 
-        if len(self._buffer) >= self.min_phrase_chars:
+        minimum = self.first_phrase_chars if not self._emitted else self.min_phrase_chars
+        if len(self._buffer) >= minimum:
             for match in _CLAUSE_END.finditer(self._buffer):
-                if match.end() >= self.min_phrase_chars:
+                if match.end() >= minimum:
                     return match.end()
 
         if len(self._buffer) >= self.max_phrase_chars:

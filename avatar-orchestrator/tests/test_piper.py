@@ -196,3 +196,21 @@ def test_an_explicit_choice_beats_both(monkeypatch):
     monkeypatch.setenv(VOICE_ENV, "alba")
     model = find_model("jenny")
     assert model is not None and "jenny" in model.stem
+
+
+def test_the_configured_pace_is_applied_by_default():
+    from amanda.audio.engines import build
+    from amanda.config import default_pace
+
+    configured = default_pace()
+    if configured is None:
+        pytest.skip("no pace configured")
+    _, voice = build("piper")
+    assert voice.pace == configured
+
+
+def test_an_explicit_pace_beats_the_config():
+    from amanda.audio.engines import build
+
+    _, voice = build("piper", pace=1.0)
+    assert voice.pace == 1.0

@@ -87,9 +87,17 @@ def reset() -> None:
     load.cache_clear()
 
 
+def _default_entry() -> dict[str, Any]:
+    voices = load("voices.yaml")
+    return (voices.get("voices") or {}).get(voices.get("default")) or {}
+
+
 def default_voice() -> str | None:
     """The voice model named in config/voices.yaml, if any."""
-    voices = load("voices.yaml")
-    default = voices.get("default")
-    entry = (voices.get("voices") or {}).get(default) or {}
-    return entry.get("model") or None
+    return _default_entry().get("model") or None
+
+
+def default_pace() -> float | None:
+    """Base delivery speed for the configured voice, if set."""
+    pace = _default_entry().get("pace")
+    return float(pace) if isinstance(pace, (int, float)) else None

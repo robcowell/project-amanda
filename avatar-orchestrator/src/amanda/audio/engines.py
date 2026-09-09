@@ -23,7 +23,7 @@ from typing import Any
 
 from amanda.audio.providers import CommandSynthesizer, ToneSynthesizer
 from amanda.audio.tts import SpeechSynthesizer, SynthesisError, VoiceSettings
-from amanda.config import default_voice
+from amanda.config import default_pace, default_voice
 
 
 @dataclass(frozen=True, slots=True)
@@ -186,7 +186,7 @@ def build(
     *,
     voice_id: str | None = None,
     sample_rate: int | None = None,
-    pace: float = 1.0,
+    pace: float | None = None,
     **overrides: Any,
 ) -> tuple[SpeechSynthesizer, VoiceSettings]:
     """A synthesizer and a voice whose sample rate the engine will agree with.
@@ -195,6 +195,8 @@ def build(
     because a mismatch is refused rather than resampled -- making the default
     correct is cheaper than making the error message good.
     """
+    # Configured pace, unless the caller asked for a specific one.
+    pace = pace if pace is not None else (default_pace() or 1.0)
     name = resolve(name)
     if name not in ENGINES:
         known = ", ".join(sorted(ENGINES))

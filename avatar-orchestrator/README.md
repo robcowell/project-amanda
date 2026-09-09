@@ -158,6 +158,13 @@ is set and the same pipeline runs against Claude. `--no-audio` runs it silently,
 speakers, and `--engine espeak-ng` swaps the stand-in voice for a real one if
 you have it installed.
 
+The first phrase is allowed to be shorter than the rest, because it alone
+decides when speech *starts* — everything after it is synthesised while earlier
+audio still plays, so its cost is hidden, while the first one's sits on the
+critical path twice: once waiting for a clause boundary, again waiting for the
+engine. Lowering that one threshold from 40 to 24 characters took 482ms off the
+start of every reply.
+
 A turn prints its own latency breakdown, which is the number Phase 2 has to
 protect:
 
@@ -307,6 +314,11 @@ precedence, by `--voice cori` (a name fragment), `$AMANDA_VOICE`, the `model:`
 key in `config/voices.yaml`, and only then the first model alphabetically —
 which is arbitrary and picked a male voice for a character named Amanda until
 somebody noticed.
+
+Delivery speed is `pace:` in the same file. Piper's `length_scale` is markedly
+non-linear — a pace of 1.1 shortens a phrase by under 3%, and it takes about 1.4
+before the change is clearly audible — so the useful range is higher than it
+looks.
 
 Voices differ in more than timbre. Measuring word-sized silences in the same
 sentence: `cori-high` 0.57/sec, `cori-medium` 0.79, `southern_english_female-low`

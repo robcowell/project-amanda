@@ -602,3 +602,40 @@ def test_configured_model_ids_carry_no_date_suffix():
     ids = [config["claude"]["model"], config["performance"]["classifier_model"]]
     for model_id in ids:
         assert not re.search(r"-\d{8}$", model_id), f"{model_id} has a date suffix"
+
+
+def test_the_first_phrase_may_be_shorter_than_the_rest():
+    """It alone decides when speech starts. Everything after it is synthesised
+    while earlier audio still plays, so its cost is hidden; the first one's is
+    on the critical path twice -- waiting for a boundary, then for the engine."""
+    reply = "It rained most of the morning, but it cleared up around three. And so on."
+
+    eager = PhraseSegmenter()
+    patient = PhraseSegmenter(first_phrase_chars=40)
+
+    def first_phrase(segmenter):
+        for index, word in enumerate(reply.split(" ")):
+            emitted = segmenter.feed(word if index == 0 else f" {word}")
+            if emitted:
+                return index + 1, emitted[0]
+        return None, segmenter.flush()
+
+    eager_words, eager_phrase = first_phrase(eager)
+    patient_words, patient_phrase = first_phrase(patient)
+
+    assert eager_words < patient_words
+    assert len(eager_phrase) < len(patient_phrase)
+    assert eager_phrase.endswith(",")
+
+
+def test_later_phrases_go_back_to_the_normal_threshold():
+    segmenter = PhraseSegmenter(first_phrase_chars=10, min_phrase_chars=40)
+    feed_all(segmenter, "Yes, quite. Well, I suppose so.")
+    # "Well," is under 40 characters, so it must not split there.
+    assert not any(phrase == "Well," for phrase in segmenter._emitted)
+
+
+def test_a_short_first_clause_is_still_not_worth_splitting():
+    """The floor is lower, not absent -- an interjection alone is a worse thing
+    to synthesise than a slightly longer wait."""
+    assert feed_all(PhraseSegmenter(), "Well, yes.") == ["Well, yes."]
