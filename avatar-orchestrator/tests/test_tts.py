@@ -91,7 +91,40 @@ async def test_tone_produces_audio_of_a_plausible_length():
 async def test_tone_is_actually_audible():
     pcm = await collect(ToneSynthesizer().synthesize("Hello there.", VOICE))
     peak = max(abs(value) for value in samples(pcm))
-    assert peak > 1000, "silence would make the pipeline untestable by ear"
+    assert peak > 12_000, "too quiet to hear over a laptop fan"
+
+
+async def test_tone_puts_its_energy_where_small_speakers_work():
+    """Regression: the first version was a 118 Hz buzz plus two harmonics, so
+    every bit of its energy sat below 400 Hz -- the band laptop speakers roll
+    off. It measured as loud and was inaudible. Peak level does not catch this;
+    only the spectrum does."""
+    import cmath
+    import math
+
+    pcm = await collect(ToneSynthesizer().synthesize("It rained this morning.", VOICE))
+    values = samples(pcm)
+
+    size = 4096
+    start = len(values) // 2
+    window = [
+        values[start + i] * (0.5 - 0.5 * math.cos(2 * math.pi * i / size)) for i in range(size)
+    ]
+
+    def energy(low: float, high: float) -> float:
+        total = 0.0
+        for k in range(int(low * size / 24_000), int(high * size / 24_000)):
+            omega = 2 * math.pi * k / size
+            magnitude = abs(sum(window[i] * cmath.exp(-1j * omega * i) for i in range(size)))
+            total += (magnitude / size) ** 2
+        return math.sqrt(total)
+
+    speakable = energy(300, 4000)
+    unreproducible = energy(20, 300)
+    assert speakable > unreproducible * 1.5, (
+        f"only {speakable:.0f} above 300 Hz against {unreproducible:.0f} below -- "
+        "a small speaker would render this silent"
+    )
 
 
 async def test_tone_starts_and_ends_quietly():

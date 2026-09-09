@@ -50,10 +50,56 @@ _VOWEL_GROUP = re.compile(r"[aeiouy]+", re.IGNORECASE)
 # --------------------------------------------------------------------------- #
 
 
+#: Resonances that turn a buzz into something voice-shaped. Real speech puts its
+#: energy in these bands, which is also the band small speakers can reproduce --
+#: a signal built only from a low fundamental and its first few harmonics is
+#: inaudible on a laptop however high you set the level.
+FORMANTS: tuple[tuple[float, float], ...] = ((520.0, 110.0), (1480.0, 180.0), (2500.0, 260.0))
+
+#: Peak level, as a fraction of full scale. Leaves headroom for the fade ramp.
+DEFAULT_AMPLITUDE = 0.62
+
+#: Wavetable size. Harmonics are summed into it once per chunk rather than
+#: per sample -- additive synthesis sample by sample is far too slow in Python
+#: to stay ahead of playback.
+TABLE_SIZE = 1024
+
+
+def _formant_gain(hz: float, shift: float) -> float:
+    """Resonant gain at a frequency, with the formants shifted by `shift`."""
+    gain = 0.02
+    for centre, bandwidth in FORMANTS:
+        centre *= shift
+        gain += 1.0 / (1.0 + ((hz - centre) / bandwidth) ** 2)
+    # Roll off the very top so it does not hiss.
+    return gain / (1.0 + (hz / 4200.0) ** 2)
+
+
+def _wavetable(f0: float, rate: int, shift: float) -> array.array:
+    """One period of a formant-shaped glottal pulse, normalised to +/-1."""
+    table = array.array("d", bytes(TABLE_SIZE * 8))
+    harmonic = 1
+    while (hz := f0 * harmonic) < rate * 0.45:
+        amplitude = _formant_gain(hz, shift) / harmonic
+        if amplitude > 0.001:
+            step = 2 * math.pi * harmonic / TABLE_SIZE
+            for index in range(TABLE_SIZE):
+                table[index] += amplitude * math.sin(step * index)
+        harmonic += 1
+
+    peak = max(max(table), -min(table)) or 1.0
+    for index in range(TABLE_SIZE):
+        table[index] /= peak
+    return table
+
+
 class _ToneStream(SynthesisStream):
-    def __init__(self, text: str, voice: VoiceSettings, fundamental: float) -> None:
+    def __init__(
+        self, text: str, voice: VoiceSettings, fundamental: float, amplitude: float
+    ) -> None:
         super().__init__(text, voice)
         self._fundamental = fundamental
+        self._amplitude = amplitude
         self.timings = _word_timings(text, voice.pace)
 
     async def _produce(self) -> AsyncIterator[bytes]:
@@ -64,30 +110,49 @@ class _ToneStream(SynthesisStream):
 
         syllables = max(1, _count_syllables(self.text))
         syllable_hz = syllables / max(0.001, total_ms / 1000)
+        ceiling = self._amplitude * 32767
 
         produced = 0
         phase = 0.0
+        table: array.array | None = None
+        table_key: tuple[int, int] = (0, 0)
+
         while produced < total_frames:
             frames = min(chunk_frames, total_frames - produced)
+            position = produced / total_frames
+            seconds = produced / rate
+
+            # A falling pitch contour across the phrase, as in a statement.
+            hz = self._fundamental * (1.0 + 0.10 * (1.0 - position)) * self.voice.pitch
+            # Formants drift with the syllable, so it articulates rather than
+            # holding one vowel for the whole phrase.
+            shift = 1.0 + 0.16 * math.sin(2 * math.pi * seconds * syllable_hz * 0.5)
+
+            # Rebuilt only when pitch or vowel has moved appreciably.
+            key = (round(hz), round(shift * 50))
+            if table is None or key != table_key:
+                table = _wavetable(hz, rate, shift)
+                table_key = key
+
             samples = array.array("h", bytes(frames * SAMPLE_WIDTH))
+            advance = TABLE_SIZE * hz / rate
 
             for index in range(frames):
-                position = (produced + index) / total_frames
-                seconds = (produced + index) / rate
-
+                at = produced + index
                 # A syllable-rate amplitude envelope, so the placeholder has the
-                # rhythm of speech even though it has none of the content. That
-                # rhythm is the point: it is what makes a barge-in cutting in
-                # mid-word sound wrong when the timing is wrong.
-                envelope = 0.35 + 0.65 * abs(math.sin(math.pi * seconds * syllable_hz))
-                envelope *= _phrase_envelope(position)
+                # rhythm of speech even though it has none of the content.
+                envelope = 0.30 + 0.70 * abs(math.sin(math.pi * (at / rate) * syllable_hz))
+                envelope *= _phrase_envelope(at / total_frames)
 
-                # A falling pitch contour across the phrase, as in a statement.
-                hz = self._fundamental * (1.0 + 0.10 * (1.0 - position)) * self.voice.pitch
-                phase += 2 * math.pi * hz / rate
+                lower = int(phase)
+                fraction = phase - lower
+                a = table[lower % TABLE_SIZE]
+                b = table[(lower + 1) % TABLE_SIZE]
+                samples[index] = int((a + (b - a) * fraction) * envelope * ceiling)
 
-                value = math.sin(phase) + 0.30 * math.sin(2 * phase) + 0.12 * math.sin(3 * phase)
-                samples[index] = int(max(-1.0, min(1.0, value / 1.42)) * envelope * 9000)
+                phase += advance
+                if phase >= TABLE_SIZE:
+                    phase -= TABLE_SIZE
 
             produced += frames
             yield samples.tobytes()
@@ -104,13 +169,16 @@ class ToneSynthesizer:
     """
 
     fundamental: float = 118.0
+    #: Peak level as a fraction of full scale. Raise it if the stand-in is hard
+    #: to hear on small speakers; the formant shaping matters more than this.
+    amplitude: float = DEFAULT_AMPLITUDE
 
     @property
     def name(self) -> str:
         return "tone"
 
     def synthesize(self, text: str, voice: VoiceSettings) -> SynthesisStream:
-        return _ToneStream(text, voice, self.fundamental)
+        return _ToneStream(text, voice, self.fundamental, self.amplitude)
 
 
 def _phrase_envelope(position: float) -> float:
