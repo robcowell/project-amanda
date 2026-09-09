@@ -135,6 +135,31 @@ The timings encode a plausible latency budget: the user stops speaking at
 t=6.0s and the avatar starts at t=7.4s, with the thinking behaviour covering
 the 1.4s gap rather than a verbal filler.
 
+## What you can run today
+
+Everything except the microphone, on a machine with no GPU and no API key.
+
+```sh
+python3 tools/previz.py                          # http://127.0.0.1:8766/previz.html
+python3 -m amanda.main --scripted --engine tone  # in another terminal
+```
+
+Type a message and the schematic face thinks, looks away, returns its gaze and
+speaks; type again while it is speaking and it is interrupted. `--scripted`
+uses canned replies so no API call is made — drop it once `ANTHROPIC_API_KEY`
+is set and the same pipeline runs against Claude. `--no-audio` runs it silently,
+`--device "cable input"` sends the voice into a virtual cable instead of the
+speakers, and `--engine espeak-ng` swaps the stand-in voice for a real one if
+you have it installed.
+
+A turn prints its own latency breakdown, which is the number Phase 2 has to
+protect:
+
+```
+[stt_ms=0  dispatch_ms=0  claude_first_token_ms=601  phrase_ms=501
+ tts_first_audio_ms=5  playback_ms=0  total_response_ms=1108]
+```
+
 ## The presence layer and the previz
 
 `src/amanda/presence/` holds blink, gaze, breathing and head-drift scheduling.
