@@ -17,6 +17,7 @@ illusion when wrong:
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import logging
 import time
 from collections.abc import AsyncIterator, Callable
@@ -213,6 +214,39 @@ class ClaudeClient:
             # key here would mean reading it into the process ourselves for no
             # benefit (build plan 25).
             self.client = anthropic.AsyncAnthropic()
+
+    @property
+    def has_credentials(self) -> bool:
+        """Whether the SDK resolved a credential.
+
+        Asked of the client rather than of the environment, because the SDK
+        looks in several places -- ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN, an
+        `ant auth login` profile -- and reimplementing that here would drift.
+        Construction succeeds regardless; only a request fails, which is too
+        late to tell somebody they have no key.
+        """
+        return bool(
+            getattr(self.client, "api_key", None)
+            or getattr(self.client, "auth_token", None)
+        )
+
+    @classmethod
+    def from_config(cls, overrides: dict[str, Any] | None = None, **kwargs: Any) -> ClaudeClient:
+        """Build from config/avatar.yaml, with explicit overrides winning.
+
+        Unknown config keys are dropped with a warning rather than raising: a
+        config file naming a setting the code no longer has should not stop the
+        application starting.
+        """
+        from amanda.config import claude_settings
+
+        fields = {field.name for field in dataclasses.fields(ClaudeSettings)}
+        values = {**claude_settings(), **(overrides or {})}
+        unknown = set(values) - fields
+        for key in unknown:
+            log.warning("ignoring unknown claude setting %r in config", key)
+        known = {key: value for key, value in values.items() if key in fields}
+        return cls(settings=ClaudeSettings(**known), **kwargs)
 
     def start_turn(self, messages: list[dict[str, Any]]) -> StreamedTurn:
         """Begin a turn. Nothing is sent until the result is iterated."""

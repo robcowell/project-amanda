@@ -39,6 +39,7 @@ from amanda.audio.sink import (  # noqa: E402
 )
 from amanda.audio.speech import SpeechSession  # noqa: E402
 from amanda.audio.tts import VoiceSettings  # noqa: E402
+from amanda.config import load_env  # noqa: E402
 
 
 def build_voice(args: argparse.Namespace):
@@ -139,6 +140,7 @@ def main() -> int:
         "--interrupt-after", type=int, metavar="MS", help="cancel mid-phrase, to hear the fade"
     )
     args = parser.parse_args()
+    load_env()
 
     with contextlib.suppress(KeyboardInterrupt):
         return asyncio.run(main_async(args))

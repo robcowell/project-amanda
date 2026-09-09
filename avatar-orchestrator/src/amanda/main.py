@@ -33,6 +33,7 @@ from amanda.avatar.websocket import DEFAULT_HOST, DEFAULT_PORT, AvatarBridge
 from amanda.claude.conversation import Conversation
 from amanda.claude.scripted import ScriptedClient
 from amanda.claude.segmenter import PhraseSegmenter
+from amanda.config import load_env
 from amanda.runtime.metrics import Stage
 from amanda.runtime.state_machine import ConversationState, ConversationStateMachine
 
@@ -49,14 +50,30 @@ def build_client(args: argparse.Namespace):
         return ScriptedClient(), "scripted"
 
     try:
-        from amanda.claude.client import ClaudeClient, ClaudeSettings
+        from amanda.claude.client import ClaudeClient
         from amanda.claude.prompts import CONVERSATION_SYSTEM
 
-        settings = ClaudeSettings(model=args.model, effort=args.effort)
-        return ClaudeClient(settings=settings, system=CONVERSATION_SYSTEM), args.model
-    except Exception as exc:  # noqa: BLE001 - any credential or import problem
-        print(f"  (no Claude client: {exc}; falling back to scripted replies)")
+        overrides = {
+            key: value
+            for key, value in (("model", args.model), ("effort", args.effort))
+            if value is not None
+        }
+        client = ClaudeClient.from_config(overrides, system=CONVERSATION_SYSTEM)
+    except Exception as exc:  # noqa: BLE001 - config or import problem
+        print(f"  (could not build a Claude client: {exc}; using scripted replies)")
         return ScriptedClient(), "scripted"
+
+    # Checked here rather than caught later: the SDK constructs happily without
+    # a credential and only fails when a request is made, which is after the
+    # user has typed something and waited.
+    if not client.has_credentials:
+        print(
+            "  no Anthropic credentials found. Set ANTHROPIC_API_KEY, or run\n"
+            "  `ant auth login`. Using scripted replies for now.\n"
+        )
+        return ScriptedClient(), "scripted"
+
+    return client, client.settings.model
 
 
 class Session:
@@ -211,6 +228,15 @@ class Session:
         with contextlib.suppress(asyncio.CancelledError):
             await interrupt
 
+        try:
+            # asyncio.wait does not raise, so without this a failed turn shows
+            # up only as "Task exception was never retrieved" and the loop
+            # carries on as though nothing happened.
+            speaking.result()
+        except Exception as exc:  # noqa: BLE001 - reported, never fatal
+            await self.report_failure(session, exc)
+            return None
+
         self.conversation.assistant(turn.text)
         if turn.refusal is not None:
             print(f"\n  [declined: {turn.refusal.category}]")
@@ -269,6 +295,19 @@ class Session:
         session.close_input()
         await session.wait()
 
+    async def report_failure(self, session: SpeechSession, exc: BaseException) -> None:
+        """Report a failed turn and leave the avatar somewhere sensible.
+
+        One bad turn -- a rate limit, a dropped connection, an engine that died
+        -- should not end the conversation, but the renderer must not be left
+        mid-utterance either.
+        """
+        if session.announced:
+            await session.cancel(CancelReason.ERROR)
+        print(f"\n  [turn failed: {type(exc).__name__}: {exc}]")
+        log.debug("turn failed", exc_info=exc)
+        self.enter(ConversationState.ATTENTIVE)
+
     def report(self, metrics) -> None:
         record = metrics.as_dict()
         parts = [f"{key}={value}" for key, value in record.items() if key.endswith("_ms")]
@@ -280,8 +319,8 @@ def main() -> int:
     parser.add_argument("--host", default=DEFAULT_HOST)
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--scripted", action="store_true", help="canned replies, no API call")
-    parser.add_argument("--model", default="claude-opus-5")
-    parser.add_argument("--effort", default="low")
+    parser.add_argument("--model", help="overrides claude.model in config/avatar.yaml")
+    parser.add_argument("--effort", help="overrides claude.effort in config/avatar.yaml")
     parser.add_argument(
         "--engine", default="auto", choices=["auto", *sorted(ENGINES)],
         help="; ".join(describe()),
@@ -298,6 +337,11 @@ def main() -> int:
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.WARNING, format="%(message)s")
+
+    # Before anything reads credentials. Names only in the message -- this file
+    # holds an API key.
+    if loaded := load_env():
+        print(f"loaded {', '.join(loaded)} from .env")
     with contextlib.suppress(KeyboardInterrupt, EOFError):
         return asyncio.run(Session(args).run())
     return 0

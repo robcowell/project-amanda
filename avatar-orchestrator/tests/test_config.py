@@ -85,3 +85,66 @@ def test_a_nonsense_pace_is_ignored_rather_than_fatal(monkeypatch, tmp_path):
 
 def test_the_shipped_config_sets_a_pace():
     assert config.default_pace() is not None
+
+
+# --------------------------------------------------------------------------- #
+# dotenv
+# --------------------------------------------------------------------------- #
+
+
+def test_values_are_read_into_the_environment(monkeypatch, tmp_path):
+    env = tmp_path / ".env"
+    env.write_text('export ANTHROPIC_API_KEY="sk-ant-example"\nAMANDA_BRIDGE_PORT=8765\n')
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("AMANDA_BRIDGE_PORT", raising=False)
+
+    assert set(config.load_env(env)) == {"ANTHROPIC_API_KEY", "AMANDA_BRIDGE_PORT"}
+    import os
+
+    assert os.environ["ANTHROPIC_API_KEY"] == "sk-ant-example", "quotes should be stripped"
+
+
+def test_the_real_environment_wins(monkeypatch, tmp_path):
+    """Otherwise `KEY=... python -m amanda.main` would be silently overridden by
+    a file, which is not what that command looks like it does."""
+    env = tmp_path / ".env"
+    env.write_text("ANTHROPIC_API_KEY=from-file\n")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "from-shell")
+
+    assert config.load_env(env) == []
+    import os
+
+    assert os.environ["ANTHROPIC_API_KEY"] == "from-shell"
+
+
+def test_comments_blanks_and_junk_are_skipped(monkeypatch, tmp_path):
+    env = tmp_path / ".env"
+    env.write_text("# comment\n\nnot a pair\n1INVALID=x\nGOOD=yes\n")
+    monkeypatch.delenv("GOOD", raising=False)
+    assert config.load_env(env) == ["GOOD"]
+
+
+def test_an_empty_value_is_not_set(monkeypatch, tmp_path):
+    """`.env.example` ships keys with empty values; loading those would mask a
+    real credential set in the shell."""
+    env = tmp_path / ".env"
+    env.write_text("ANTHROPIC_API_KEY=\n")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    assert config.load_env(env) == []
+    import os
+
+    assert "ANTHROPIC_API_KEY" not in os.environ
+
+
+def test_a_missing_file_is_not_an_error(tmp_path):
+    assert config.load_env(tmp_path / "nothing-here") == []
+
+
+def test_names_are_returned_but_never_values(monkeypatch, tmp_path):
+    """A loader that reports what it loaded is a loader that leaks the key."""
+    env = tmp_path / ".env"
+    env.write_text("SECRET_THING=hunter2\n")
+    monkeypatch.delenv("SECRET_THING", raising=False)
+
+    assert config.load_env(env) == ["SECRET_THING"]

@@ -75,6 +75,62 @@ def load(name: str) -> dict[str, Any]:
     return loaded if isinstance(loaded, dict) else {}
 
 
+def project_root() -> Path:
+    """The orchestrator directory, whether run from it or from elsewhere."""
+    if (Path.cwd() / "pyproject.toml").is_file():
+        return Path.cwd()
+    return Path(__file__).resolve().parents[2]
+
+
+def load_env(path: Path | None = None) -> list[str]:
+    """Read KEY=VALUE lines from a dotenv file into the environment.
+
+    Returns the names that were set, never the values -- this file holds an API
+    key, and a loader that logs what it loaded is a loader that leaks it.
+
+    **The real environment wins.** A variable already exported is left alone, so
+    running with an explicit `ANTHROPIC_API_KEY=... python -m amanda.main` does
+    what it looks like it does rather than being silently overridden by a file.
+
+    Deliberately hand-rolled rather than pulling in a dependency: the format
+    here is a handful of KEY=VALUE lines, and the parsing below is the whole of
+    what this project needs from it.
+    """
+    path = path or project_root() / ".env"
+    if not path.is_file():
+        return []
+
+    applied: list[str] = []
+    try:
+        lines = path.read_text().splitlines()
+    except OSError as exc:
+        log.warning("could not read %s: %s", path, exc)
+        return []
+
+    for raw in lines:
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        line = line.removeprefix("export ").lstrip()
+        name, separator, value = line.partition("=")
+        if not separator:
+            continue
+        name = name.strip()
+        if not name.isidentifier():
+            continue
+
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        if not value or name in os.environ:
+            continue
+
+        os.environ[name] = value
+        applied.append(name)
+
+    return applied
+
+
 def reset() -> None:
     """Forget what was loaded.
 
@@ -95,6 +151,16 @@ def _default_entry() -> dict[str, Any]:
 def default_voice() -> str | None:
     """The voice model named in config/voices.yaml, if any."""
     return _default_entry().get("model") or None
+
+
+def claude_settings() -> dict[str, Any]:
+    """The `claude:` block from config/avatar.yaml.
+
+    Returned raw so the caller decides what to do with unknown keys -- config
+    that names a setting the code has dropped should not stop startup.
+    """
+    settings = load("avatar.yaml").get("claude")
+    return dict(settings) if isinstance(settings, dict) else {}
 
 
 def default_pace() -> float | None:

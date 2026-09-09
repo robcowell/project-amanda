@@ -150,6 +150,15 @@ class SpeechSession:
             await asyncio.gather(self._worker, return_exceptions=True)
 
     @property
+    def announced(self) -> bool:
+        """Whether the renderer has been told about this utterance at all.
+
+        A turn that fails before the first phrase should not send
+        speech.cancelled for something the renderer never heard of.
+        """
+        return self._prepared
+
+    @property
     def result(self) -> SpokenUtterance:
         return SpokenUtterance(
             utterance_id=self.utterance_id,
