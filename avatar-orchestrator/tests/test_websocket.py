@@ -11,6 +11,7 @@ import asyncio
 
 import pytest
 from websockets.asyncio.client import connect
+from websockets.exceptions import ConnectionClosed
 
 from amanda.avatar import protocol as p
 from amanda.avatar.websocket import AvatarBridge, _Client
@@ -279,7 +280,7 @@ async def test_stop_closes_connected_renderers():
     async with await renderer(instance) as connection:
         await recv(connection)
         await instance.stop()
-        with pytest.raises(Exception):
+        with pytest.raises(ConnectionClosed):
             await asyncio.wait_for(connection.recv(), RECV_TIMEOUT)
     assert instance.client_count == 0
 

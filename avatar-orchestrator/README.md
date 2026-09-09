@@ -14,18 +14,21 @@ this one and never calls Claude itself. See
 
 ## Status
 
-Scaffolded. **The renderer side is complete** — protocol v1 and the bridge that
-carries it. Everything upstream of the bridge is a stub with its
+The renderer-facing half is built: protocol v1, the bridge that carries it, and
+a tested presence layer with a previsualiser to tune it. Everything upstream —
+Claude, speech, the performance director — is still a stub with its
 responsibilities and backlog items written down.
 
 | Area | State |
 |---|---|
 | `avatar/protocol.py` | Implemented, 58 conformance tests |
 | `avatar/websocket.py` | Implemented, 20 tests (epic 4) |
+| `presence/` | Implemented, 30 tests (phase 3, reference for Unreal) |
+| `performance/{schema,smoothing}.py` | Implemented (phase 4) |
+| `performance/director.py` | Stub, needs the classifier call |
 | `claude/` | Stub — next step (epic 2) |
 | `audio/tts.py` | Stub (epic 3) |
 | `audio/{microphone,vad,stt}.py` | Stub, phase 2 (epic 5) |
-| `performance/` | Stub, phase 4 |
 | `runtime/` | Stub |
 
 ## Layout
@@ -35,10 +38,11 @@ src/amanda/
   audio/        microphone, VAD, STT, TTS -- each behind a swappable interface
   claude/       Messages API client, conversation state, prompts
   performance/  the performance director, its schema and smoothing
+  presence/     blink, gaze, breath and drift -- reference logic for the renderer
   avatar/       protocol v1 and the local WebSocket bridge
   runtime/      conversation state machine, interruption, telemetry
 config/         avatar.yaml, voices.yaml -- no secrets
-tools/          emit_sample_session.py
+tools/          previz, sample session emitter and server, mock renderer
 tests/
 ```
 
@@ -129,6 +133,50 @@ python3 tools/emit_sample_session.py > session.ndjson
 The timings encode a plausible latency budget: the user stops speaking at
 t=6.0s and the avatar starts at t=7.4s, with the thinking behaviour covering
 the 1.4s gap rather than a verbal filler.
+
+## The presence layer and the previz
+
+`src/amanda/presence/` holds blink, gaze, breathing and head-drift scheduling.
+At runtime this logic belongs in Unreal (`BP_IdleController`,
+`BP_GazeController`), and that is still the plan — it lives here as a **reference
+implementation**, because these are stochastic processes whose constants have to
+be tuned by watching them, which is miserable in a Blueprint graph and ordinary
+in Python. Tune here, port the tuned algorithm later.
+
+Nothing in it reads a clock or touches the network: every scheduler takes an
+explicit `now` and an injected `random.Random`, so a test runs ten minutes of
+behaviour in milliseconds and gets the same answer twice.
+
+`tools/previz.py` is a renderer that draws diagrams instead of a face. It
+attaches to the bridge as an ordinary protocol v1 client, runs the schedulers,
+and streams the result to a browser:
+
+```sh
+python3 tools/previz.py                          # then open http://127.0.0.1:8766/previz.html
+python3 tools/serve_sample_session.py --loop     # in another terminal, to drive it
+```
+
+It cannot tell you whether the character looks alive. It can tell you whether
+the timings have fallen into a rhythm, which is the failure the build plan's
+sixty-second stillness test is designed to catch. For tuning, skip the browser
+entirely:
+
+```sh
+python3 tools/previz.py --audit 30 --seed 11     # 30 minutes of behaviour, ~1 second
+```
+
+Two things the diagnostics caught on their first run, both now regression-tested:
+
+- Blinks were firing at six times the human rate, because a gaze-shift magnitude
+  was exposed as a level rather than an edge — so every frame after a saccade
+  looked like a fresh shift.
+- Gaze alternated user, away, user, away almost perfectly. Each choice was
+  random; the sequence was not. Eye contact is a fraction of *time*, so it
+  belongs in how long a target is held, not only in how often it is chosen.
+
+The repetition metric reports a chance baseline alongside the measurement.
+Without it the number is only alarming: draw a few hundred symbols from five
+options and some run of six repeats every time.
 
 ## Development
 

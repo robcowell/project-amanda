@@ -75,7 +75,9 @@ SESSION: list[tuple[float, p.Payload]] = [
     (10.800, p.SpeechCompleted(utterance_id="u_1042")),
 
     # Settling.
-    (10.900, p.PerformanceUpdate(preset=p.Preset.NEUTRAL_ATTENTIVE, intensity=0.12, transition_ms=900)),
+    (10.900, p.PerformanceUpdate(
+        preset=p.Preset.NEUTRAL_ATTENTIVE, intensity=0.12, transition_ms=900
+    )),
 
     # A second turn, interrupted mid-sentence.
     (13.000, p.UserSpeechStarted()),
@@ -96,7 +98,9 @@ SESSION: list[tuple[float, p.Payload]] = [
     # The user leaves.
     (25.000, p.UserSpeechEnded(duration_ms=7400)),
     (40.000, p.UserDetected(present=False)),
-    (40.100, p.PerformanceUpdate(preset=p.Preset.NEUTRAL_ATTENTIVE, intensity=0.06, transition_ms=2000)),
+    (40.100, p.PerformanceUpdate(
+        preset=p.Preset.NEUTRAL_ATTENTIVE, intensity=0.06, transition_ms=2000
+    )),
     (40.200, p.GazeSetTarget(target=p.GazeTarget.DISTANT, hold_ms=0, transition_ms=1200)),
     (45.000, p.SessionEnded(session_id="s_demo", reason="user absent")),
 ]

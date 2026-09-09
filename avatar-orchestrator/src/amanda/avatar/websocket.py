@@ -158,7 +158,7 @@ class AvatarBridge:
         self._clients.clear()
         log.info("avatar bridge stopped")
 
-    async def __aenter__(self) -> "AvatarBridge":
+    async def __aenter__(self) -> AvatarBridge:
         await self.start()
         return self
 

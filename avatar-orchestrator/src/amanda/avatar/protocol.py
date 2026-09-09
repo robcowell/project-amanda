@@ -215,7 +215,7 @@ class Payload:
         raise NotImplementedError
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> "Payload":
+    def from_dict(cls, payload: dict[str, Any]) -> Payload:
         raise NotImplementedError
 
 
@@ -227,7 +227,7 @@ class _Empty(Payload):
         return {}
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> "_Empty":
+    def from_dict(cls, payload: dict[str, Any]) -> _Empty:
         return cls()
 
 
@@ -241,7 +241,7 @@ class SessionStarted(Payload):
         return {"session_id": self.session_id}
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> "SessionStarted":
+    def from_dict(cls, payload: dict[str, Any]) -> SessionStarted:
         return cls(session_id=_as_str(_require(payload, "session_id"), "session_id"))
 
 
@@ -256,7 +256,7 @@ class SessionEnded(Payload):
         return _compact(session_id=self.session_id, reason=self.reason)
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> "SessionEnded":
+    def from_dict(cls, payload: dict[str, Any]) -> SessionEnded:
         reason = payload.get("reason")
         return cls(
             session_id=_as_str(_require(payload, "session_id"), "session_id"),
@@ -276,7 +276,7 @@ class UserDetected(Payload):
         return {"present": self.present}
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> "UserDetected":
+    def from_dict(cls, payload: dict[str, Any]) -> UserDetected:
         return cls(present=_as_bool(_require(payload, "present"), "present"))
 
 
@@ -295,7 +295,7 @@ class UserSpeechEnded(Payload):
         return _compact(duration_ms=self.duration_ms)
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> "UserSpeechEnded":
+    def from_dict(cls, payload: dict[str, Any]) -> UserSpeechEnded:
         duration = payload.get("duration_ms")
         return cls(
             duration_ms=None if duration is None else _as_duration_ms(duration, "duration_ms")
@@ -336,7 +336,7 @@ class SpeechPrepare(Payload):
         )
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> "SpeechPrepare":
+    def from_dict(cls, payload: dict[str, Any]) -> SpeechPrepare:
         preset = payload.get("preset")
         text = payload.get("text")
         return cls(
@@ -371,11 +371,13 @@ class SpeechStarted(Payload):
         )
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> "SpeechStarted":
+    def from_dict(cls, payload: dict[str, Any]) -> SpeechStarted:
         duration = payload.get("duration_ms")
         sample_rate = payload.get("sample_rate", 24_000)
         if isinstance(sample_rate, bool) or not isinstance(sample_rate, int) or sample_rate <= 0:
-            raise InvalidPayloadError(f"'sample_rate' must be a positive integer, got {sample_rate!r}")
+            raise InvalidPayloadError(
+                f"'sample_rate' must be a positive integer, got {sample_rate!r}"
+            )
         return cls(
             utterance_id=_as_str(_require(payload, "utterance_id"), "utterance_id"),
             audio_channel=_as_str(payload.get("audio_channel", "stream"), "audio_channel"),
@@ -394,7 +396,7 @@ class SpeechCompleted(Payload):
         return {"utterance_id": self.utterance_id}
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> "SpeechCompleted":
+    def from_dict(cls, payload: dict[str, Any]) -> SpeechCompleted:
         return cls(utterance_id=_as_str(_require(payload, "utterance_id"), "utterance_id"))
 
 
@@ -417,7 +419,7 @@ class SpeechCancelled(Payload):
         }
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> "SpeechCancelled":
+    def from_dict(cls, payload: dict[str, Any]) -> SpeechCancelled:
         return cls(
             utterance_id=_as_str(_require(payload, "utterance_id"), "utterance_id"),
             reason=_as_enum(CancelReason, payload.get("reason", CancelReason.BARGE_IN), "reason"),
@@ -459,7 +461,7 @@ class PerformanceUpdate(Payload):
         )
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> "PerformanceUpdate":
+    def from_dict(cls, payload: dict[str, Any]) -> PerformanceUpdate:
         def optional_unit(key: str) -> float | None:
             value = payload.get(key)
             return None if value is None else _as_unit(value, key)
@@ -499,7 +501,7 @@ class GazeSetTarget(Payload):
         }
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> "GazeSetTarget":
+    def from_dict(cls, payload: dict[str, Any]) -> GazeSetTarget:
         return cls(
             target=_as_enum(GazeTarget, _require(payload, "target"), "target"),
             hold_ms=_as_duration_ms(payload.get("hold_ms", 0), "hold_ms"),
@@ -521,7 +523,7 @@ class GestureTrigger(Payload):
         return {"gesture": self.gesture, "intensity": self.intensity}
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> "GestureTrigger":
+    def from_dict(cls, payload: dict[str, Any]) -> GestureTrigger:
         return cls(
             gesture=_as_str(_require(payload, "gesture"), "gesture"),
             intensity=_as_unit(payload.get("intensity", 0.2), "intensity"),

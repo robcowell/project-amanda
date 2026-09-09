@@ -12,7 +12,6 @@ import pytest
 
 from amanda.avatar import protocol as p
 
-
 # --------------------------------------------------------------------------- #
 # Envelope
 # --------------------------------------------------------------------------- #
@@ -104,7 +103,9 @@ ALL_PAYLOADS = [
     p.SpeechStarted(utterance_id="u_1", sample_rate=48_000, duration_ms=1800),
     p.SpeechStarted(utterance_id="u_1"),
     p.SpeechCompleted(utterance_id="u_1"),
-    p.SpeechCancelled(utterance_id="u_1", reason=p.CancelReason.BARGE_IN, fade_ms=60),
+    p.SpeechCancelled(
+        utterance_id="u_1", reason=p.CancelReason.BARGE_IN, fade_ms=60
+    ),
     p.PerformanceUpdate(preset=p.Preset.CONSIDERING, intensity=0.28),
     p.PerformanceUpdate(
         preset=p.Preset.CONSIDERING,
@@ -142,13 +143,9 @@ def test_every_payload_class_is_covered_by_the_round_trip_cases():
 
 def test_unknown_payload_fields_are_ignored():
     """A newer orchestrator may add optional fields without a version bump."""
+    payload = {"preset": "warm", "intensity": 0.3, "jaw_tension": 0.4}
     raw = json.dumps(
-        {
-            "version": 1,
-            "event": "performance.update",
-            "timestamp": 0.0,
-            "payload": {"preset": "warm", "intensity": 0.3, "jaw_tension": 0.4},
-        }
+        {"version": 1, "event": "performance.update", "timestamp": 0.0, "payload": payload}
     )
     assert p.decode(raw).parse() == p.PerformanceUpdate(preset=p.Preset.WARM, intensity=0.3)
 
@@ -176,9 +173,8 @@ def test_optional_fields_are_omitted_rather_than_sent_as_null():
 @pytest.mark.parametrize("value", [-0.1, 1.1, 42])
 def test_animation_coefficients_outside_0_to_1_are_rejected(value):
     """Rejected, not clamped -- a director emitting 1.4 has a bug worth seeing."""
-    raw = json.dumps(
-        {"version": 1, "event": "performance.update", "payload": {"preset": "warm", "intensity": value}}
-    )
+    payload = {"preset": "warm", "intensity": value}
+    raw = json.dumps({"version": 1, "event": "performance.update", "payload": payload})
     with pytest.raises(p.InvalidPayloadError, match="intensity"):
         p.decode(raw).parse()
 
@@ -202,9 +198,8 @@ def test_missing_required_fields_are_rejected(event, payload, missing):
 
 
 def test_unknown_enum_values_are_rejected_with_the_allowed_set():
-    raw = json.dumps(
-        {"version": 1, "event": "performance.update", "payload": {"preset": "smug", "intensity": 0.2}}
-    )
+    payload = {"preset": "smug", "intensity": 0.2}
+    raw = json.dumps({"version": 1, "event": "performance.update", "payload": payload})
     with pytest.raises(p.InvalidPayloadError) as caught:
         p.decode(raw).parse()
     assert "smug" in str(caught.value)
@@ -213,15 +208,15 @@ def test_unknown_enum_values_are_rejected_with_the_allowed_set():
 
 def test_booleans_are_not_accepted_as_numbers():
     """bool is an int in Python; the wire format should not inherit that."""
-    raw = json.dumps(
-        {"version": 1, "event": "performance.update", "payload": {"preset": "warm", "intensity": True}}
-    )
+    payload = {"preset": "warm", "intensity": True}
+    raw = json.dumps({"version": 1, "event": "performance.update", "payload": payload})
     with pytest.raises(p.InvalidPayloadError):
         p.decode(raw).parse()
 
 
 def test_negative_durations_are_rejected():
-    raw = json.dumps({"version": 1, "event": "gaze.set_target", "payload": {"target": "user", "hold_ms": -5}})
+    payload = {"target": "user", "hold_ms": -5}
+    raw = json.dumps({"version": 1, "event": "gaze.set_target", "payload": payload})
     with pytest.raises(p.InvalidPayloadError, match="hold_ms"):
         p.decode(raw).parse()
 
@@ -258,4 +253,5 @@ def test_sample_session_is_valid_protocol_v1():
         previous = envelope.timestamp
         events.add(envelope.event)
 
-    assert events == set(p.EventType), f"sample session never exercises: {set(p.EventType) - events}"
+    missing = set(p.EventType) - events
+    assert not missing, f"sample session never exercises: {missing}"

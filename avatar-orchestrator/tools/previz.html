@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Amanda previz</title>
+<style>
+  :root {
+    --bg: #101216;
+    --panel: #171A20;
+    --line: #262B34;
+    --ink: #E6E9EE;
+    --ink-2: #98A0AE;
+    --ink-3: #6B7380;
+    --key: #DFA04A;
+    --rim: #78B8D8;
+    --ok: #7CC79A;
+    --warn: #F0897E;
+    --mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 13px/1.5 var(--mono);
+  }
+  header {
+    display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap;
+    padding: 14px 20px; border-bottom: 1px solid var(--line);
+  }
+  h1 { font-size: 14px; font-weight: 500; margin: 0; letter-spacing: .04em; }
+  .status { color: var(--ink-3); display: flex; gap: 18px; flex-wrap: wrap; }
+  .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
+  .dot.on { background: var(--ok); }
+  .dot.off { background: var(--warn); }
+
+  main {
+    display: grid; grid-template-columns: minmax(320px, 460px) minmax(0, 1fr);
+    gap: 1px; background: var(--line); min-height: calc(100vh - 50px);
+  }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+
+  .stage, .panels { background: var(--bg); }
+  .stage { display: flex; align-items: flex-start; justify-content: center; padding: 20px; }
+  canvas { max-width: 100%; height: auto; }
+
+  .panels { padding: 20px; display: grid; gap: 16px; align-content: start; }
+  @media (min-width: 1280px) { .panels { grid-template-columns: 1fr 1fr; } }
+
+  section {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 4px;
+    padding: 14px 16px;
+  }
+  h2 {
+    font-size: 10px; font-weight: 500; letter-spacing: .16em; text-transform: uppercase;
+    color: var(--ink-3); margin: 0 0 12px;
+  }
+  .row { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; }
+  .row span:last-child { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+
+  .bar { display: grid; grid-template-columns: 92px 1fr 46px; gap: 10px; align-items: center; padding: 3px 0; }
+  .bar-label { color: var(--ink-3); font-size: 11px; }
+  .bar-track { height: 6px; background: #22262E; border-radius: 3px; overflow: hidden; }
+  .bar-fill { height: 100%; background: var(--rim); border-radius: 3px; transition: width .06s linear; }
+  .bar-fill.key { background: var(--key); }
+  .bar-value { text-align: right; color: var(--ink-2); font-size: 11px; font-variant-numeric: tabular-nums; }
+
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+  .chip {
+    border: 1px solid var(--line); border-radius: 2px; padding: 2px 8px;
+    font-size: 11px; color: var(--ink-3);
+  }
+  .chip.on { color: var(--bg); background: var(--key); border-color: var(--key); }
+
+  .verdict { font-size: 11px; padding: 2px 8px; border-radius: 2px; border: 1px solid; }
+  .verdict.good { color: var(--ok); border-color: #2C4A38; }
+  .verdict.warn { color: var(--key); border-color: #4A3A20; }
+  .verdict.bad { color: var(--warn); border-color: #4A2A26; }
+  .verdict.idle { color: var(--ink-3); border-color: var(--line); }
+
+  .head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .head h2 { margin: 0; }
+
+  .spark { width: 100%; height: 34px; display: block; margin-top: 8px; }
+
+  .log { max-height: 220px; overflow-y: auto; }
+  .log div { display: grid; grid-template-columns: 52px 150px 1fr; gap: 8px; padding: 2px 0; font-size: 11px; }
+  .log .t { color: var(--ink-3); font-variant-numeric: tabular-nums; }
+  .log .e { color: var(--rim); }
+  .log .d { color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .pattern { color: var(--ink-3); font-size: 11px; margin-top: 8px; word-break: break-word; }
+  .note { color: var(--ink-3); font-size: 11px; margin-top: 10px; line-height: 1.5; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>AMANDA PREVIZ</h1>
+  <div class="status">
+    <span><i class="dot off" id="link-dot"></i><span id="link">connecting</span></span>
+    <span>bridge <span id="bridge">—</span></span>
+    <span><span id="events">0</span> events</span>
+    <span><span id="uptime">0</span>s</span>
+  </div>
+</header>
+
+<main>
+  <div class="stage"><canvas id="face" width="840" height="960"></canvas></div>
+
+  <div class="panels">
+
+    <section>
+      <h2>State</h2>
+      <div class="row"><span>preset</span><span id="preset">—</span></div>
+      <div class="row"><span>gaze target</span><span id="gaze-target">—</span></div>
+      <div class="bar"><span class="bar-label">intensity</span><span class="bar-track"><span class="bar-fill key" id="b-intensity"></span></span><span class="bar-value" id="v-intensity">0.00</span></div>
+      <div class="bar"><span class="bar-label">eye contact</span><span class="bar-track"><span class="bar-fill" id="b-eye"></span></span><span class="bar-value" id="v-eye">0.00</span></div>
+      <div class="chips">
+        <span class="chip" id="c-present">present</span>
+        <span class="chip" id="c-listening">listening</span>
+        <span class="chip" id="c-thinking">thinking</span>
+        <span class="chip" id="c-speaking">speaking</span>
+      </div>
+    </section>
+
+    <section>
+      <h2>Channels</h2>
+      <div class="bar"><span class="bar-label">brow L</span><span class="bar-track"><span class="bar-fill" id="b-browl"></span></span><span class="bar-value" id="v-browl">0.00</span></div>
+      <div class="bar"><span class="bar-label">brow R</span><span class="bar-track"><span class="bar-fill" id="b-browr"></span></span><span class="bar-value" id="v-browr">0.00</span></div>
+      <div class="bar"><span class="bar-label">smile L</span><span class="bar-track"><span class="bar-fill" id="b-smilel"></span></span><span class="bar-value" id="v-smilel">0.00</span></div>
+      <div class="bar"><span class="bar-label">smile R</span><span class="bar-track"><span class="bar-fill" id="b-smiler"></span></span><span class="bar-value" id="v-smiler">0.00</span></div>
+      <div class="bar"><span class="bar-label">lid open</span><span class="bar-track"><span class="bar-fill" id="b-lid"></span></span><span class="bar-value" id="v-lid">1.00</span></div>
+      <div class="bar"><span class="bar-label">breath</span><span class="bar-track"><span class="bar-fill" id="b-breath"></span></span><span class="bar-value" id="v-breath">0.00</span></div>
+      <div class="bar"><span class="bar-label">jaw</span><span class="bar-track"><span class="bar-fill key" id="b-jaw"></span></span><span class="bar-value" id="v-jaw">0.00</span></div>
+      <p class="note">Jaw is a stand-in envelope, not lip sync — no audio reaches this process. Left and right never match: a constant asymmetry bias is drawn once per session.</p>
+    </section>
+
+    <section>
+      <div class="head"><h2>Blink rhythm</h2><span class="verdict idle" id="blink-verdict">—</span></div>
+      <div class="row"><span>rate</span><span id="blink-rate">—</span></div>
+      <div class="row"><span>mean interval</span><span id="blink-mean">—</span></div>
+      <div class="row"><span>variation (cv)</span><span id="blink-cv">—</span></div>
+      <svg class="spark" id="blink-spark" viewBox="0 0 300 34" preserveAspectRatio="none" aria-label="Recent blink intervals"></svg>
+      <p class="note">Bars are consecutive intervals. Even heights mean a metronome — the thing the eye notices without being able to name it. Human variation sits around 0.5.</p>
+    </section>
+
+    <section>
+      <div class="head"><h2>Gaze repetition</h2><span class="verdict idle" id="gaze-verdict">—</span></div>
+      <div class="row"><span>shifts</span><span id="gaze-shifts">—</span></div>
+      <div class="row"><span>longest repeat</span><span id="gaze-repeat">—</span></div>
+      <div class="row"><span>expected by chance</span><span id="gaze-baseline">—</span></div>
+      <div id="dwell"></div>
+      <p class="pattern" id="gaze-pattern"></p>
+    </section>
+
+    <section>
+      <h2>Performance</h2>
+      <div class="row"><span>preset changes</span><span id="perf-changes">0</span></div>
+      <div class="row"><span>refused by hysteresis</span><span id="perf-refused">0</span></div>
+      <p class="note">Refusals are the smoother resisting flapping. A steadily climbing count means the director is oscillating and wants tuning, not that the smoother is misbehaving.</p>
+    </section>
+
+    <section>
+      <h2>Protocol events</h2>
+      <div class="log" id="log"></div>
+    </section>
+
+  </div>
+</main>
+
+<script>
+"use strict";
+
+const $ = (id) => document.getElementById(id);
+const canvas = $("face");
+const ctx = canvas.getContext("2d");
+
+let face = null;
+
+// ------------------------------------------------------------------ //
+// Transport
+// ------------------------------------------------------------------ //
+
+function link() {
+  const socket = new WebSocket(`ws://${location.hostname}:8767`);
+
+  socket.onopen = () => {
+    $("link").textContent = "attached";
+    $("link-dot").className = "dot on";
+  };
+  socket.onclose = () => {
+    $("link").textContent = "reconnecting";
+    $("link-dot").className = "dot off";
+    setTimeout(link, 1000);
+  };
+  socket.onmessage = (message) => apply(JSON.parse(message.data));
+}
+
+function apply(frame) {
+  face = frame.face;
+  $("bridge").textContent = frame.link.bridge;
+  $("events").textContent = frame.link.events;
+  $("uptime").textContent = frame.link.uptime;
+
+  panels(frame);
+  renderLog(frame.log);
+}
+
+// ------------------------------------------------------------------ //
+// Panels
+// ------------------------------------------------------------------ //
+
+function bar(name, value) {
+  $("b-" + name).style.width = Math.max(0, Math.min(1, value)) * 100 + "%";
+  $("v-" + name).textContent = value.toFixed(2);
+}
+
+function chip(name, on) {
+  $("c-" + name).className = on ? "chip on" : "chip";
+}
+
+function verdictClass(verdict) {
+  if (verdict === "irregular" || verdict === "within chance") return "verdict good";
+  if (verdict === "borderline" || verdict === "noticeable rhythm") return "verdict warn";
+  if (verdict === "not enough data") return "verdict idle";
+  return "verdict bad";
+}
+
+function panels(frame) {
+  const f = frame.face;
+  $("preset").textContent = f.preset;
+  $("gaze-target").textContent = f.gaze_target;
+  bar("intensity", f.intensity);
+  bar("eye", f.eye_contact);
+  bar("browl", f.brow_left);
+  bar("browr", f.brow_right);
+  bar("smilel", f.smile_left);
+  bar("smiler", f.smile_right);
+  bar("lid", f.lid_open);
+  bar("breath", f.breath);
+  bar("jaw", f.jaw);
+  chip("present", f.user_present);
+  chip("listening", f.listening);
+  chip("thinking", f.thinking);
+  chip("speaking", f.speaking);
+
+  const d = frame.diagnostics;
+  if (!d || !d.blink) return;
+
+  $("blink-verdict").textContent = d.blink.verdict;
+  $("blink-verdict").className = verdictClass(d.blink.verdict);
+  $("blink-rate").textContent = `${d.blink.count} · ${d.blink.per_minute}/min`;
+  $("blink-mean").textContent = `${d.blink.mean.toFixed(2)}s`;
+  $("blink-cv").textContent = d.blink.cv.toFixed(2);
+  spark(d.blink.intervals);
+
+  $("gaze-verdict").textContent = d.gaze.verdict;
+  $("gaze-verdict").className = verdictClass(d.gaze.verdict);
+  $("gaze-shifts").textContent = d.gaze.shifts;
+  $("gaze-repeat").textContent = d.gaze.repeat;
+  $("gaze-baseline").textContent = `${d.gaze.baseline} (${d.gaze.excess >= 0 ? "+" : ""}${d.gaze.excess})`;
+  $("gaze-pattern").textContent = d.gaze.pattern.length ? d.gaze.pattern.join(" › ") : "";
+  dwell(d.gaze.dwell);
+
+  $("perf-changes").textContent = d.performance.changes;
+  $("perf-refused").textContent = d.performance.refused;
+}
+
+function dwell(fractions) {
+  const host = $("dwell");
+  const entries = Object.entries(fractions).sort((a, b) => b[1] - a[1]);
+  host.innerHTML = "";
+  for (const [name, fraction] of entries) {
+    const row = document.createElement("div");
+    row.className = "bar";
+    row.innerHTML =
+      `<span class="bar-label">${name}</span>` +
+      `<span class="bar-track"><span class="bar-fill" style="width:${(fraction * 100).toFixed(1)}%"></span></span>` +
+      `<span class="bar-value">${(fraction * 100).toFixed(0)}%</span>`;
+    host.appendChild(row);
+  }
+}
+
+const SPARK_SLOTS = 48;
+
+function spark(intervals) {
+  const svg = $("blink-spark");
+  if (!intervals || !intervals.length) { svg.innerHTML = ""; return; }
+
+  const top = Math.max(0.1, Math.max(...intervals) * 1.12);
+  const w = 300 / SPARK_SLOTS;
+  svg.innerHTML = intervals
+    .map((value, index) => {
+      const h = (value / top) * 30;
+      return `<rect x="${(index * w).toFixed(1)}" y="${(32 - h).toFixed(1)}" width="${(w - 1).toFixed(1)}" height="${h.toFixed(1)}" fill="#78B8D8" opacity="0.75"></rect>`;
+    })
+    .join("");
+}
+
+function renderLog(entries) {
+  const host = $("log");
+  host.innerHTML = entries
+    .slice()
+    .reverse()
+    .map((e) => `<div><span class="t">${e.t.toFixed(1)}</span><span class="e">${e.event}</span><span class="d">${e.detail}</span></div>`)
+    .join("");
+}
+
+// ------------------------------------------------------------------ //
+// The face
+// ------------------------------------------------------------------ //
+
+const DPR = Math.min(2, window.devicePixelRatio || 1);
+canvas.width = 420 * DPR;
+canvas.height = 480 * DPR;
+canvas.style.width = "420px";
+canvas.style.height = "480px";
+ctx.scale(DPR, DPR);
+
+function stroke(color, width) {
+  ctx.strokeStyle = color;
+  ctx.lineWidth = width;
+  ctx.lineCap = "round";
+}
+
+function draw() {
+  requestAnimationFrame(draw);
+  ctx.clearRect(0, 0, 420, 480);
+  if (!face) return;
+
+  const f = face;
+  const ink = "#C6CCD6";
+  const dim = "#3A414C";
+
+  ctx.save();
+  ctx.translate(210 + f.head_yaw * 2.0, 250 - f.head_pitch * 2.0);
+  ctx.rotate((f.head_roll * Math.PI) / 180);
+
+  // shoulders, rising with the breath
+  const lift = f.breath * 3.5;
+  stroke(dim, 2);
+  ctx.beginPath();
+  ctx.moveTo(-150, 218 - lift);
+  ctx.quadraticCurveTo(0, 150 - lift * 1.6, 150, 218 - lift);
+  ctx.stroke();
+
+  // head, squashed slightly with yaw to fake rotation
+  ctx.save();
+  ctx.scale(1 - Math.abs(f.head_yaw) * 0.006, 1);
+  stroke(ink, 2);
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 104, 134, 0, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+
+  // eyes
+  for (const side of [-1, 1]) {
+    const ex = side * 42;
+    const ey = -24;
+
+    stroke(ink, 2);
+    ctx.beginPath();
+    ctx.ellipse(ex, ey, 27, 15, 0, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // iris and pupil follow the gaze angles
+    const px = ex + f.eye_yaw * 1.15;
+    const py = ey - f.eye_pitch * 1.0;
+    ctx.fillStyle = "#78B8D8";
+    ctx.beginPath();
+    ctx.arc(px, py, 9, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#0E1116";
+    ctx.beginPath();
+    ctx.arc(px, py, 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    // lid, closing from the top
+    const closed = 1 - f.lid_open;
+    if (closed > 0.001) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.ellipse(ex, ey, 27, 15, 0, 0, Math.PI * 2);
+      ctx.clip();
+      ctx.fillStyle = "#101216";
+      ctx.fillRect(ex - 28, ey - 16, 56, closed * 32);
+      ctx.restore();
+      stroke(ink, 2);
+      ctx.beginPath();
+      ctx.moveTo(ex - 27, ey - 16 + closed * 32);
+      ctx.lineTo(ex + 27, ey - 16 + closed * 32);
+      ctx.stroke();
+    }
+
+    // brow, raised independently per side
+    const raise = side < 0 ? f.brow_left : f.brow_right;
+    stroke("#DFA04A", 2.5);
+    ctx.beginPath();
+    ctx.moveTo(ex - 26, ey - 34 - raise * 13);
+    ctx.quadraticCurveTo(ex, ey - 42 - raise * 17, ex + 26, ey - 33 - raise * 12);
+    ctx.stroke();
+  }
+
+  // nose
+  stroke(dim, 2);
+  ctx.beginPath();
+  ctx.moveTo(0, -10);
+  ctx.lineTo(-6, 34);
+  ctx.lineTo(4, 36);
+  ctx.stroke();
+
+  // mouth: corners lift with smile, opens with the jaw envelope
+  const open = f.jaw * 20;
+  const cornerL = 66 - f.smile_left * 9;
+  const cornerR = 66 - f.smile_right * 9;
+  stroke(ink, 2.5);
+  ctx.beginPath();
+  ctx.moveTo(-34, cornerL);
+  ctx.quadraticCurveTo(0, 72 + open * 0.4, 34, cornerR);
+  ctx.stroke();
+  if (open > 0.5) {
+    ctx.beginPath();
+    ctx.moveTo(-34, cornerL);
+    ctx.quadraticCurveTo(0, 72 + open, 34, cornerR);
+    ctx.stroke();
+  }
+
+  ctx.restore();
+
+  // gaze target readout, anchored to the frame rather than the head
+  ctx.fillStyle = "#6B7380";
+  ctx.font = "11px ui-monospace, monospace";
+  ctx.textAlign = "center";
+  ctx.fillText(
+    `yaw ${f.eye_yaw.toFixed(1)}°  pitch ${f.eye_pitch.toFixed(1)}°  head ${f.head_yaw.toFixed(1)}°`,
+    210,
+    462
+  );
+}
+
+link();
+draw();
+</script>
+</body>
+</html>
