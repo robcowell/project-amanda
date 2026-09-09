@@ -1,0 +1,20 @@
+{
+  "FileVersion": 3,
+  "Version": 1,
+  "VersionName": "0.1.0",
+  "FriendlyName": "Amanda Bridge",
+  "Description": "Receives Project Amanda protocol v1 over a local WebSocket and broadcasts it to Blueprints.",
+  "Category": "Other",
+  "CreatedBy": "Project Amanda",
+  "EnabledByDefault": true,
+  "CanContainContent": false,
+  "IsBetaVersion": false,
+  "Installed": false,
+  "Modules": [
+    {
+      "Name": "AmandaBridge",
+      "Type": "Runtime",
+      "LoadingPhase": "Default"
+    }
+  ]
+}

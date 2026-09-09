@@ -178,6 +178,17 @@ The repetition metric reports a chance baseline alongside the measurement.
 Without it the number is only alarming: draw a few hundred symbols from five
 options and some run of six repeats every time.
 
+## The Unreal side
+
+`../unreal/AmandaBridge/` is an Unreal plugin that speaks the other end of this
+protocol. Its conformance-test fixture is generated from the sample session
+here, so both implementations are checked against the same bytes. Regenerate it
+after any protocol change:
+
+```sh
+python3 tools/regenerate_unreal_fixture.py
+```
+
 ## Development
 
 ```sh
