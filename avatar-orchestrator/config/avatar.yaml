@@ -7,15 +7,36 @@ bridge:
   protocol_version: 1
   reconnect_backoff_ms: [250, 500, 1000, 2000, 5000]
 
+# Keys map directly onto amanda.claude.client.ClaudeSettings.
 claude:
-  model: claude-sonnet-5   # held in config, never hard-coded (build plan 4)
+  model: claude-opus-5     # held in config, never hard-coded (build plan 4)
+
+  # A spoken turn is short. A reply long enough to hit this cap has already
+  # stopped being conversation.
   max_tokens: 1024
-  stream: true
+
+  # The latency lever. Opus 5 thinks by default and effort governs how much;
+  # "low" suits chat. Explicitly disabling thinking on this model is a
+  # documented footgun -- raise or lower effort instead, and watch T3.
+  effort: low
+
+  # Server-side refusal fallbacks: on a policy decline the API re-runs the same
+  # request on a fallback model within the same call, routed by category.
+  fallbacks: true
+
+  # Research preview: the same model at up to 2.5x output tokens per second, at
+  # premium pricing. A real lever on T6 - T0, and a spending decision.
+  fast: false
+
+  # Below the model's minimum cacheable prefix this silently does nothing,
+  # which is the case for a short system prompt. Harmless, and correct once the
+  # prompt grows.
+  cache_system: true
 
 performance:
   # A second, deliberately cheap call classifies the performance so it never
   # contaminates the spoken text (build plan 6, option A).
-  classifier_model: claude-haiku-4-5-20251001
+  classifier_model: claude-haiku-4-5
   classifier_max_tokens: 128
 
   # Phase 4 starts with a subset of the preset vocabulary.

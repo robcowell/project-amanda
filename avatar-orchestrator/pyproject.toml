@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Conversation orchestrator for Project Amanda: Claude, speech and a performance director driving a real-time digital human."
 requires-python = ">=3.12"
 dependencies = [
-    "anthropic>=0.40",
+    "anthropic>=1.0",
     "websockets>=13.0",
     "pyyaml>=6.0",
 ]

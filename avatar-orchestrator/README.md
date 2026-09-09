@@ -14,10 +14,10 @@ this one and never calls Claude itself. See
 
 ## Status
 
-The renderer-facing half is built: protocol v1, the bridge that carries it, and
-a tested presence layer with a previsualiser to tune it. Everything upstream —
-Claude, speech, the performance director — is still a stub with its
-responsibilities and backlog items written down.
+The renderer-facing half is built — protocol v1, the bridge that carries it,
+and a tested presence layer with a previsualiser to tune it — and so is the
+Claude half: streaming turns, cancellation, conversation state and phrase
+segmentation. What remains is speech: TTS, then the microphone loop.
 
 | Area | State |
 |---|---|
@@ -26,8 +26,9 @@ responsibilities and backlog items written down.
 | `presence/` | Implemented, 30 tests (phase 3, reference for Unreal) |
 | `performance/{schema,smoothing}.py` | Implemented (phase 4) |
 | `performance/director.py` | Stub, needs the classifier call |
-| `claude/` | Stub — next step (epic 2) |
-| `audio/tts.py` | Stub (epic 3) |
+| `claude/` | Implemented, 47 tests (epic 2) |
+| `runtime/metrics.py` | Implemented (T0–T6) |
+| `audio/tts.py` | Stub — next step (epic 3) |
 | `audio/{microphone,vad,stt}.py` | Stub, phase 2 (epic 5) |
 | `runtime/` | Stub |
 
@@ -177,6 +178,47 @@ Two things the diagnostics caught on their first run, both now regression-tested
 The repetition metric reports a chance baseline alongside the measurement.
 Without it the number is only alarming: draw a few hundred symbols from five
 options and some run of six repeats every time.
+
+## The Claude client
+
+`claude/client.py` streams a turn from the Messages API and hands text to the
+phrase segmenter, so TTS can start on phrase one while Claude is still writing
+phrase two. Everything about the request lives in `config/avatar.yaml`.
+
+```python
+turn = client.start_turn(conversation.messages())
+async for chunk in turn:
+    for phrase in segmenter.feed(chunk):
+        await tts.speak(phrase)
+turn.cancel()          # barge-in: immediate, not at the next token
+```
+
+Four decisions worth knowing before you change anything:
+
+- **`claude-opus-5`, and effort is the latency lever.** Thinking is on by
+  default on this model and `effort` governs how much; the config ships at
+  `low`, which suits conversation. Explicitly setting `thinking: disabled` is a
+  documented footgun on Opus 5 — it can write tool calls into visible text and
+  leak thinking tags — so the client never sends the parameter at all. Tune
+  effort and watch `claude_first_token_ms`.
+- **Refusal fallbacks are on.** On a policy decline the API re-runs the request
+  on a fallback model inside the same call, routed by category. A decline
+  before any output is not billed. `stop_reason: "refusal"` on the final
+  response means the whole chain declined, and surfaces as `turn.refusal`.
+- **Fast mode is available and off.** The same model at up to 2.5x output
+  tokens per second, at premium pricing — a real lever on `T6 - T0`, and a
+  spending decision rather than a technical one. Set `claude.fast: true` to try
+  it.
+- **Cancellation cancels a task, not a flag.** A flag only takes effect at the
+  next token, and during a barge-in there may not be one for a while. What was
+  already streamed stays in `turn.text`, because that is what the user heard.
+
+`conversation.py` records that partial text rather than what Claude generated —
+the tail was cancelled before synthesis, so as far as the conversation is
+concerned it was never said — and follows it with a mid-conversation system
+message telling Claude it was cut off. That note needs a model that supports
+mid-conversation system messages: Opus 5 does, **Sonnet 5 returns a 400**, so
+set `interruption_notes: false` if you change model.
 
 ## The Unreal side
 
