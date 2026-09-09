@@ -578,3 +578,75 @@ async def test_a_realtime_sink_paces_playback():
 
     assert session.result.cancelled
     assert sink.played_ms < 2000, "the rest of the phrase should have been discarded"
+
+
+# --------------------------------------------------------------------------- #
+# Engine registry
+# --------------------------------------------------------------------------- #
+
+
+def test_every_engine_declares_a_plausible_sample_rate():
+    from amanda.audio.engines import ENGINES
+
+    for name, engine in ENGINES.items():
+        assert 8_000 <= engine.sample_rate <= 48_000, name
+
+
+def test_the_voice_follows_the_engines_native_rate():
+    """A mismatch is refused rather than resampled, so the default has to be
+    right -- this is what makes `--engine espeak-ng` work without also
+    remembering to pass `--rate 22050`."""
+    from amanda.audio.engines import build
+
+    _, voice = build("espeak-ng")
+    assert voice.sample_rate == 22_050
+
+    _, tone_voice = build("tone")
+    assert tone_voice.sample_rate == 24_000
+
+
+def test_the_rate_can_still_be_overridden():
+    from amanda.audio.engines import build
+
+    _, voice = build("espeak-ng", sample_rate=16_000)
+    assert voice.sample_rate == 16_000
+
+
+def test_an_unknown_engine_lists_the_known_ones():
+    from amanda.audio.engines import build
+
+    with pytest.raises(KeyError, match="espeak-ng"):
+        build("festival")
+
+
+def test_the_voice_flag_is_dropped_when_no_voice_is_named():
+    """Most engines reject an empty -v argument, so the flag has to go with it."""
+    from amanda.audio.engines import build
+
+    synthesizer, _ = build("espeak-ng")
+    assert "{voice}" not in synthesizer.argv
+    assert "-v" not in synthesizer.argv
+
+
+def test_the_voice_flag_survives_when_one_is_named():
+    from amanda.audio.engines import build
+
+    synthesizer, voice = build("espeak-ng", voice_id="en-gb")
+    assert "-v" in synthesizer.argv
+    stream = synthesizer.synthesize("hello", voice)
+    assert "en-gb" in stream._argv
+
+
+def test_the_built_in_engine_needs_no_subprocess():
+    from amanda.audio.engines import build
+
+    synthesizer, _ = build("tone")
+    assert isinstance(synthesizer, ToneSynthesizer)
+
+
+def test_pace_still_reaches_a_registry_built_engine():
+    from amanda.audio.engines import build
+
+    synthesizer, voice = build("espeak-ng", pace=1.5)
+    stream = synthesizer.synthesize("hello", voice)
+    assert "248" in stream._argv, "165 wpm scaled by 1.5"

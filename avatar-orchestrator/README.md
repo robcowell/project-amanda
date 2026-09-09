@@ -140,8 +140,8 @@ the 1.4s gap rather than a verbal filler.
 Everything except the microphone, on a machine with no GPU and no API key.
 
 ```sh
-python3 tools/previz.py                          # http://127.0.0.1:8766/previz.html
-python3 -m amanda.main --scripted --engine tone  # in another terminal
+python3 tools/previz.py                               # http://127.0.0.1:8766/previz.html
+python3 -m amanda.main --scripted --engine espeak-ng  # in another terminal
 ```
 
 Type a message and the schematic face thinks, looks away, returns its gaze and
@@ -285,6 +285,13 @@ Two providers ship, and neither is the one this will run on:
 |---|---|
 | `ToneSynthesizer` | Audible, correctly-timed audio that is not speech. Lets the whole pipeline be run and heard before an engine is chosen. |
 | `CommandSynthesizer` | Any CLI engine — espeak-ng, Piper, macOS `say` — via an argv template. No code per engine. |
+
+`audio/engines.py` is the registry: an argv template and, critically, the sample
+rate each engine actually emits. A mismatch is **refused rather than resampled**
+— playing 22050 Hz audio at 24000 makes a chipmunk that is easy to blame on the
+engine when it is really a config error — so the voice defaults to whatever the
+chosen engine produces. `espeak-ng` is 22050 Hz; Piper depends on the model you
+downloaded, so pass `--rate` if yours differs.
 
 A streaming cloud engine is the likely production choice and is deliberately
 absent: an API client that has never run against the real service is code that

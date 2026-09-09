@@ -28,7 +28,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from amanda.audio.providers import CommandSynthesizer, ToneSynthesizer  # noqa: E402
+from amanda.audio.engines import ENGINES, build, describe  # noqa: E402
+from amanda.audio.providers import CommandSynthesizer  # noqa: E402
 from amanda.audio.sink import (  # noqa: E402
     RAW_PLAYERS,
     CommandSink,
@@ -39,27 +40,18 @@ from amanda.audio.sink import (  # noqa: E402
 from amanda.audio.speech import SpeechSession  # noqa: E402
 from amanda.audio.tts import VoiceSettings  # noqa: E402
 
-#: Ready-made argv for engines people are likely to have. Anything not listed
-#: works too -- pass the whole command with --argv.
-ENGINES = {
-    "tone": None,
-    "espeak-ng": ["espeak-ng", "--stdout", "-s", "{rate}", "{text}"],
-    "espeak": ["espeak", "--stdout", "-s", "{rate}", "{text}"],
-    "piper": ["piper", "--model", "{voice}", "--output-raw", "--", "{text}"],
-    "say": ["say", "-r", "{rate}", "-o", "-", "--data-format=LEI16@{srate}", "{text}"],
-}
 
-
-def build_synthesizer(args: argparse.Namespace):
+def build_voice(args: argparse.Namespace):
+    """A synthesizer and a matching voice, from the engine registry."""
     if args.argv:
-        return CommandSynthesizer(argv=args.argv, expects_wav=not args.raw, label="custom")
-    if args.engine == "tone":
-        return ToneSynthesizer()
-    argv = ENGINES[args.engine]
-    return CommandSynthesizer(
-        argv=[part.replace("{srate}", str(args.rate)) for part in argv],
-        expects_wav=args.engine != "piper",
-        label=args.engine,
+        synthesizer = CommandSynthesizer(
+            argv=args.argv, expects_wav=not args.raw, label="custom"
+        )
+        return synthesizer, VoiceSettings(
+            voice_id=args.voice, sample_rate=args.rate or 24_000, pace=args.pace
+        )
+    return build(
+        args.engine, voice_id=args.voice, sample_rate=args.rate, pace=args.pace
     )
 
 
@@ -83,9 +75,8 @@ async def main_async(args: argparse.Namespace) -> int:
         print("nothing to say -- pass some text, or --devices", file=sys.stderr)
         return 2
 
-    voice = VoiceSettings(voice_id=args.voice, sample_rate=args.rate, pace=args.pace)
+    synthesizer, voice = build_voice(args)
     sink = build_sink(args)
-    synthesizer = build_synthesizer(args)
 
     events: list[str] = []
     session = SpeechSession(
@@ -131,14 +122,17 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("text", nargs="*", help="phrases to speak, one argument each")
     parser.add_argument("--devices", action="store_true", help="list output devices and exit")
-    parser.add_argument("--engine", default="tone", choices=sorted(ENGINES))
+    parser.add_argument(
+        "--engine", default="tone", choices=sorted(ENGINES),
+        help="; ".join(describe()),
+    )
     parser.add_argument("--argv", nargs="+", help="a full engine command, overriding --engine")
     parser.add_argument("--raw", action="store_true", help="the engine emits raw PCM, not WAV")
     parser.add_argument("--device", help="output device, by index or name fragment")
     parser.add_argument("--player", choices=sorted(RAW_PLAYERS), help="pipe to a player instead")
     parser.add_argument("--wav", help="write to a file instead of playing")
     parser.add_argument("--voice", help="engine-specific voice id or model path")
-    parser.add_argument("--rate", type=int, default=24_000)
+    parser.add_argument("--rate", type=int, help="override the engine's native sample rate")
     parser.add_argument("--pace", type=float, default=1.0)
     parser.add_argument("--fade", type=int, default=80)
     parser.add_argument(

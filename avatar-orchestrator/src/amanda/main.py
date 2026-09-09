@@ -25,10 +25,9 @@ import logging
 import sys
 import uuid
 
-from amanda.audio.providers import CommandSynthesizer, ToneSynthesizer
+from amanda.audio.engines import ENGINES, build, describe
 from amanda.audio.sink import DeviceSink, NullSink
 from amanda.audio.speech import SpeechSession
-from amanda.audio.tts import VoiceSettings
 from amanda.avatar.protocol import CancelReason, SessionEnded, SessionStarted, UserDetected
 from amanda.avatar.websocket import DEFAULT_HOST, DEFAULT_PORT, AvatarBridge
 from amanda.claude.conversation import Conversation
@@ -38,24 +37,6 @@ from amanda.runtime.metrics import Stage
 from amanda.runtime.state_machine import ConversationState, ConversationStateMachine
 
 log = logging.getLogger("amanda")
-
-ENGINES = {
-    "tone": None,
-    "espeak-ng": ["espeak-ng", "--stdout", "-s", "{rate}", "{text}"],
-    "espeak": ["espeak", "--stdout", "-s", "{rate}", "{text}"],
-    "piper": ["piper", "--model", "{voice}", "--output-raw", "--", "{text}"],
-}
-
-
-def build_synthesizer(args: argparse.Namespace):
-    if args.engine == "tone":
-        return ToneSynthesizer()
-    return CommandSynthesizer(
-        argv=ENGINES[args.engine],
-        expects_wav=args.engine != "piper",
-        label=args.engine,
-    )
-
 
 def build_client(args: argparse.Namespace):
     """Claude when there are credentials, canned replies otherwise.
@@ -87,8 +68,11 @@ class Session:
         self.states = ConversationStateMachine()
         self.conversation = Conversation()
         self.client, self.model = build_client(args)
-        self.synthesizer = build_synthesizer(args)
-        self.voice = VoiceSettings(voice_id=args.voice, sample_rate=args.rate)
+        # The sample rate follows the engine unless overridden: a mismatch is
+        # refused rather than resampled, so the default has to be right.
+        self.synthesizer, self.voice = build(
+            args.engine, voice_id=args.voice, sample_rate=args.rate
+        )
         self.typed: asyncio.Queue[str] = asyncio.Queue()
         self.session_id = f"s_{uuid.uuid4().hex[:8]}"
         self.eof = False
@@ -120,7 +104,10 @@ class Session:
     async def run(self) -> int:
         async with self.bridge:
             print(f"bridge on ws://{self.bridge.host}:{self.bridge.port}")
-            print(f"model {self.model}, voice via {self.synthesizer.name}")
+            print(
+            f"model {self.model}, voice via {self.synthesizer.name} "
+            f"at {self.voice.sample_rate} Hz"
+        )
             print("type a message; type again while it speaks to interrupt; ctrl-d to quit\n")
 
             self.bridge.send(SessionStarted(session_id=self.session_id))
@@ -286,11 +273,14 @@ def main() -> int:
     parser.add_argument("--scripted", action="store_true", help="canned replies, no API call")
     parser.add_argument("--model", default="claude-opus-5")
     parser.add_argument("--effort", default="low")
-    parser.add_argument("--engine", default="tone", choices=sorted(ENGINES))
+    parser.add_argument(
+        "--engine", default="tone", choices=sorted(ENGINES),
+        help="; ".join(describe()),
+    )
     parser.add_argument("--voice", help="engine-specific voice id or model path")
     parser.add_argument("--device", help="output device, by index or name fragment")
     parser.add_argument("--no-audio", action="store_true", help="run silently")
-    parser.add_argument("--rate", type=int, default=24_000)
+    parser.add_argument("--rate", type=int, help="override the engine's native sample rate")
     parser.add_argument("--fade", type=int, default=80)
     parser.add_argument(
         "--settle", type=int, default=700, metavar="MS",
