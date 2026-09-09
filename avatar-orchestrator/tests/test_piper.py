@@ -163,3 +163,36 @@ def test_an_explicit_rate_still_overrides_the_model():
 
     _, voice = build("piper", sample_rate=48_000)
     assert voice.sample_rate == 48_000
+
+
+def test_config_names_the_default_voice(monkeypatch):
+    """config/voices.yaml sat unread from the scaffold until it acquired a
+    setting somebody wanted. This is what keeps it honest."""
+    from amanda.audio.engines import VOICE_ENV, find_model
+    from amanda.config import default_voice, reset
+
+    monkeypatch.delenv(VOICE_ENV, raising=False)
+    monkeypatch.delenv("AMANDA_CONFIG_DIR", raising=False)
+    reset()
+    named = default_voice()
+    if named is None:
+        pytest.skip("no default voice configured")
+
+    model = find_model()
+    assert model is not None and named in model.stem
+
+
+def test_the_environment_beats_the_config(monkeypatch):
+    from amanda.audio.engines import VOICE_ENV, find_model
+
+    monkeypatch.setenv(VOICE_ENV, "alba")
+    model = find_model()
+    assert model is not None and "alba" in model.stem
+
+
+def test_an_explicit_choice_beats_both(monkeypatch):
+    from amanda.audio.engines import VOICE_ENV, find_model
+
+    monkeypatch.setenv(VOICE_ENV, "alba")
+    model = find_model("jenny")
+    assert model is not None and "jenny" in model.stem

@@ -19,12 +19,25 @@ cancel_fade_ms: 80
 
 voices:
   amanda:
-    # tone      -- the built-in stand-in: audible, correctly timed, not speech.
-    # command   -- any CLI engine; set argv below.
-    # Add a streaming cloud provider when one is chosen and measured.
-    provider: tone
+    # tone   -- the built-in stand-in: audible, correctly timed, not speech.
+    # piper  -- local neural voices, loaded in-process.
+    # command -- any CLI engine; set argv below.
+    # Leave unset to use whichever engine is installed, best first.
+    provider: null
+
+    # Which voice model, by name fragment. Measured against the alternatives,
+    # cori-medium has the fewest word-sized gaps of the fast voices -- the
+    # gappier ones read as staccato. cori-high is smoother still at five times
+    # the CPU, which is not worth it.
+    #
+    # Download with:
+    #   python -m piper.download_voices --download-dir voices en_GB-cori-medium
+    model: cori-medium
+
     voice_id: null
-    sample_rate: 24000
+    # Left unset: a Piper model declares its own rate, and overriding it is how
+    # you get a chipmunk.
+    sample_rate: null
     format: pcm_s16le
 
     # Used when provider is "command". One entry per argument, no shell.

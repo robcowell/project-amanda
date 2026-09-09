@@ -302,10 +302,11 @@ python -m piper.download_voices --download-dir voices en_GB-jenny_dioco-medium
 python -m amanda.main --scripted          # auto-detects it
 ```
 
-Models go in `voices/` (gitignored). `--voice cori` selects one by name
-fragment, and `AMANDA_VOICE` sets the default so it need not be passed every
-time — worth setting, because otherwise the first model alphabetically wins,
-which is an arbitrary choice.
+Models go in `voices/` (gitignored). The voice is chosen, in order of
+precedence, by `--voice cori` (a name fragment), `$AMANDA_VOICE`, the `model:`
+key in `config/voices.yaml`, and only then the first model alphabetically —
+which is arbitrary and picked a male voice for a character named Amanda until
+somebody noticed.
 
 Voices differ in more than timbre. Measuring word-sized silences in the same
 sentence: `cori-high` 0.57/sec, `cori-medium` 0.79, `southern_english_female-low`

@@ -23,6 +23,7 @@ from typing import Any
 
 from amanda.audio.providers import CommandSynthesizer, ToneSynthesizer
 from amanda.audio.tts import SpeechSynthesizer, SynthesisError, VoiceSettings
+from amanda.config import default_voice
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,11 +127,11 @@ def find_model(
     should have to type "voices/en_GB-jenny_dioco-medium.onnx" when "jenny"
     identifies it unambiguously.
 
-    With no preference, $AMANDA_VOICE is consulted before falling back to the
-    first alphabetically -- which is arbitrary, and picked a male voice for a
-    character named Amanda until somebody noticed.
+    With no preference the chain is $AMANDA_VOICE, then the voice named in
+    config/voices.yaml, then the first alphabetically -- which is arbitrary, and
+    picked a male voice for a character named Amanda until somebody noticed.
     """
-    prefer = prefer or os.environ.get(VOICE_ENV) or None
+    prefer = prefer or os.environ.get(VOICE_ENV) or default_voice() or None
     models: list[Path] = []
     for directory in directories:
         if directory.is_dir():
