@@ -217,6 +217,33 @@ The repetition metric reports a chance baseline alongside the measurement.
 Without it the number is only alarming: draw a few hundred symbols from five
 options and some run of six repeats every time.
 
+## Latency, measured
+
+Time to first token dominates a turn, and it is the only stage nothing
+downstream can hide — the avatar cannot start speaking until Claude has said
+something. Measured on one prompt through this pipeline, September 2026:
+
+| configuration | first token | total |
+|---|---|---|
+| `claude-opus-5`, effort low *(shipped default)* | 2234 ms | 3006 ms |
+| `claude-opus-5`, thinking disabled | 1542 ms | 3071 ms |
+| `claude-sonnet-5`, effort low | 669 ms | 1695 ms |
+| `claude-haiku-4-5` | 658 ms | 1053 ms |
+
+Three things worth reading off that. Opus spends about 2.2 seconds before the
+first word, which is most of a turn and the thing the thinking animation exists
+to cover. Disabling thinking buys ~700 ms of it but leaves the total unchanged —
+it moves the wait rather than removing it, and on Opus 5 it risks `<thinking>`
+tags leaking into text that is about to be spoken aloud. And the cheaper models
+are not marginally faster but **three times** faster to first token.
+
+Which to run is a product decision, not a technical one, and it is one line in
+`config/avatar.yaml`. Fast mode was not measurable here: it has a rate limit
+separate from standard Opus and this key had no allocation, returning 429.
+
+Single samples on one prompt — re-measure before trusting the small
+differences. The threefold gaps are well clear of noise.
+
 ## The Claude client
 
 `claude/client.py` streams a turn from the Messages API and hands text to the
