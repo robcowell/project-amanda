@@ -104,3 +104,62 @@ async def test_the_registry_builds_it_natively():
     assert isinstance(synthesizer, PiperSynthesizer)
     assert voice.sample_rate == 22_050
     assert synthesizer.name.startswith("piper:")
+
+
+# --------------------------------------------------------------------------- #
+# Choosing a voice
+# --------------------------------------------------------------------------- #
+
+
+def test_a_model_can_be_named_by_a_fragment():
+    """Nobody should type "voices/en_GB-cori-medium.onnx" when "cori" is
+    unambiguous -- the same reasoning as matching audio devices by name."""
+    from amanda.audio.engines import find_model
+
+    model = find_model("cori")
+    assert model is not None and "cori" in model.stem
+
+
+def test_an_unknown_fragment_lists_what_is_there():
+    from amanda.audio.engines import find_model
+
+    with pytest.raises(SynthesisError, match="Available"):
+        find_model("amanda-no-such-voice")
+
+
+def test_an_explicit_path_still_wins():
+    from amanda.audio.engines import find_model
+
+    assert find_model(str(MODEL)) == MODEL
+
+
+def test_the_environment_names_the_default_voice(monkeypatch):
+    """Otherwise the default falls to whichever model sorts first, which chose
+    a male voice for a character named Amanda until somebody noticed."""
+    from amanda.audio.engines import VOICE_ENV, find_model
+
+    monkeypatch.setenv(VOICE_ENV, "cori")
+    model = find_model()
+    assert model is not None and "cori" in model.stem
+
+
+def test_the_sample_rate_comes_from_the_model_not_a_constant():
+    """Medium and high voices are 22050 Hz and low ones 16000, so one registry
+    constant is wrong for somebody."""
+    from amanda.audio.engines import build, find_model
+    from amanda.audio.piper_provider import model_sample_rate
+
+    for model in {find_model("cori-medium"), find_model()}:
+        if model is None:
+            continue
+        declared = model_sample_rate(model)
+        assert declared is not None
+        _, voice = build("piper", voice_id=str(model))
+        assert voice.sample_rate == declared
+
+
+def test_an_explicit_rate_still_overrides_the_model():
+    from amanda.audio.engines import build
+
+    _, voice = build("piper", sample_rate=48_000)
+    assert voice.sample_rate == 48_000

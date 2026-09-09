@@ -302,8 +302,17 @@ python -m piper.download_voices --download-dir voices en_GB-jenny_dioco-medium
 python -m amanda.main --scripted          # auto-detects it
 ```
 
-Models go in `voices/` (gitignored) and are found automatically; `--voice` picks
-a specific one when there are several.
+Models go in `voices/` (gitignored). `--voice cori` selects one by name
+fragment, and `AMANDA_VOICE` sets the default so it need not be passed every
+time — worth setting, because otherwise the first model alphabetically wins,
+which is an arbitrary choice.
+
+Voices differ in more than timbre. Measuring word-sized silences in the same
+sentence: `cori-high` 0.57/sec, `cori-medium` 0.79, `southern_english_female-low`
+1.01, `alba-medium` 1.14, `jenny_dioco-medium` 1.29. The gappier voices read as
+staccato — words separated rather than flowing. `cori-medium` is the best
+combination here: 0.79 gaps/sec at 9.4x realtime, against `cori-high`'s smoother
+0.57 at only 2.0x.
 
 Piper runs **in-process, not as a subprocess**, and that is a measurement rather
 than a preference. Each `piper` CLI invocation spends about 3.5 seconds loading

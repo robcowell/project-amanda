@@ -13,6 +13,7 @@ is the whole contract.
 from __future__ import annotations
 
 import importlib.util
+import os
 import shutil
 import sys
 from collections.abc import Sequence
@@ -90,6 +91,10 @@ ENGINES: dict[str, Engine] = {
 PREFERENCE: tuple[str, ...] = ("piper", "say", "espeak-ng", "espeak", "tone")
 
 
+#: Names the voice model to use when none is given, so the choice is not left
+#: to alphabetical accident. Set it once rather than passing --voice every time.
+VOICE_ENV = "AMANDA_VOICE"
+
 #: Where to look for downloaded voice models, in order.
 MODEL_DIRS: tuple[Path, ...] = (
     Path("voices"),
@@ -112,19 +117,39 @@ def which(command: str) -> str | None:
     return str(candidate) if candidate.exists() else None
 
 
-def find_model(directories: Sequence[Path] = MODEL_DIRS) -> Path | None:
-    """The first voice model on disk, if any.
+def find_model(
+    prefer: str | None = None, directories: Sequence[Path] = MODEL_DIRS
+) -> Path | None:
+    """A voice model on disk, chosen by name fragment if one is given.
 
-    Convenience with a purpose: an engine that needs a model is not really
-    installed until one is present, and asking for `--voice` every time when
-    exactly one model exists is friction for no benefit.
+    Fragment matching for the same reason the audio device uses it: nobody
+    should have to type "voices/en_GB-jenny_dioco-medium.onnx" when "jenny"
+    identifies it unambiguously.
+
+    With no preference, $AMANDA_VOICE is consulted before falling back to the
+    first alphabetically -- which is arbitrary, and picked a male voice for a
+    character named Amanda until somebody noticed.
     """
+    prefer = prefer or os.environ.get(VOICE_ENV) or None
+    models: list[Path] = []
     for directory in directories:
         if directory.is_dir():
-            models = sorted(directory.glob("*.onnx"))
-            if models:
-                return models[0]
-    return None
+            models.extend(sorted(directory.glob("*.onnx")))
+    if not models:
+        return None
+
+    if prefer:
+        candidate = Path(prefer)
+        if candidate.exists():
+            return candidate
+        needle = prefer.casefold()
+        for model in models:
+            if needle in model.stem.casefold():
+                return model
+        names = ", ".join(model.stem for model in models)
+        raise SynthesisError(f"no voice model matching {prefer!r}. Available: {names}")
+
+    return models[0]
 
 
 def installed(name: str) -> bool:
@@ -175,8 +200,8 @@ def build(
         raise KeyError(f"unknown engine {name!r}. Known engines: {known}")
 
     engine = ENGINES[name]
-    if engine.needs_model and voice_id is None:
-        model = find_model()
+    if engine.needs_model and (voice_id is None or not Path(voice_id).exists()):
+        model = find_model(voice_id)
         if model is None:
             raise SynthesisError(
                 f"{name} needs a voice model. Download one into voices/ with:\n"
@@ -192,9 +217,16 @@ def build(
     )
 
     if engine.native == "piper":
-        from amanda.audio.piper_provider import PiperSynthesizer
+        from amanda.audio.piper_provider import PiperSynthesizer, model_sample_rate
 
-        return PiperSynthesizer(model=Path(voice.voice_id or ""), **overrides), voice
+        model = Path(voice.voice_id or "")
+        if sample_rate is None and (native := model_sample_rate(model)) is not None:
+            # The model knows its own rate; the registry's default is only a
+            # guess that happens to be right for medium and high voices.
+            voice = VoiceSettings(
+                voice_id=voice.voice_id, sample_rate=native, pace=voice.pace
+            )
+        return PiperSynthesizer(model=model, **overrides), voice
 
     if engine.argv is None:
         return ToneSynthesizer(**overrides), voice

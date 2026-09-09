@@ -15,6 +15,7 @@ worse than paying it before anyone is listening.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
@@ -55,7 +56,10 @@ class _PiperStream(SynthesisStream):
 
         # length_scale is a duration multiplier, so it is the inverse of pace:
         # a faster delivery means shorter phonemes.
-        config = SynthesisConfig(length_scale=1.0 / max(0.25, self.voice.pace))
+        config = SynthesisConfig(
+            length_scale=1.0 / max(0.25, self.voice.pace),
+            speaker_id=self._owner.speaker_id,
+        )
 
         def work() -> None:
             try:
@@ -92,12 +96,29 @@ class _PiperStream(SynthesisStream):
             await asyncio.gather(worker, return_exceptions=True)
 
 
+def model_sample_rate(model: Path) -> int | None:
+    """The rate a voice model emits, read from its config.
+
+    A property of the model, not of Piper: medium and high voices are 22050 Hz
+    and low ones 16000, so a single registry constant is wrong for somebody.
+    """
+    config = model.with_suffix(model.suffix + ".json")
+    if not config.exists():
+        return None
+    try:
+        return int(json.loads(config.read_text())["audio"]["sample_rate"])
+    except (OSError, KeyError, ValueError, TypeError):
+        return None
+
+
 @dataclass
 class PiperSynthesizer:
     """Local neural speech from a Piper voice model."""
 
     model: Path
     config: Path | None = None
+    #: Which voice in a multi-speaker model. vctk has over a hundred.
+    speaker_id: int | None = None
 
     _voice: Any = field(default=None, init=False, repr=False)
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock, init=False, repr=False)
