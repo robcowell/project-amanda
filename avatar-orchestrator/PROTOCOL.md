@@ -114,11 +114,39 @@ Phase 4 uses a subset. A renderer may map any preset it has not authored onto
 
 Angles stay renderer-side; the protocol names intent, not degrees.
 
+## Connecting
+
+The orchestrator listens; the renderer connects. On every connection the
+renderer receives, before anything else:
+
+1. `avatar.reset`
+2. the current `session.started`, `performance.update` and `gaze.set_target`,
+   if the conversation has produced them yet.
+
+That is the whole reconnect contract. Speech events are never replayed, so a
+renderer that reconnects mid-utterance stays silent rather than resuming
+lip-sync for audio that has already played.
+
+A renderer that stops draining its socket will be **disconnected** rather than
+having messages dropped, and should simply reconnect — which resynchronises it.
+
+Protocol v1 is one-directional. Anything the renderer sends is ignored, never
+fatal; there is no renderer-to-orchestrator event in this version.
+
 ## Testing without an orchestrator
 
-`tools/emit_sample_session.py` writes one realistic turn — greeting, listening,
-thinking, speaking, barge-in, settling — as newline-delimited JSON. Replay it
-into the renderer to exercise every event without Claude, TTS or a microphone:
+`tools/emit_sample_session.py` defines one realistic turn — greeting, listening,
+thinking, speaking, an acknowledgement nod, barge-in, the user leaving —
+exercising every event without Claude, TTS or a microphone.
+
+Replay it over a live bridge and point the renderer at `ws://127.0.0.1:8765`:
+
+```sh
+python3 tools/serve_sample_session.py     # --speed 4, --loop
+python3 tools/mock_renderer.py            # printing stand-in renderer
+```
+
+Or dump it as newline-delimited JSON for offline replay:
 
 ```sh
 python3 tools/emit_sample_session.py > session.ndjson
