@@ -1,18 +1,51 @@
-# Voice identities. The provider is deliberately indirect so engines can be
-# swapped without touching the rest of the system (build plan 4).
+# Voice identities and delivery.
+#
+# The provider is deliberately indirect: TTS provider lock-in is a named risk in
+# the build plan whose consequence is an expensive redesign, so the engine is
+# named here and nothing outside amanda.audio knows which one is speaking.
 
 default: amanda
 
+# Where the avatar's voice goes. On the Windows box this is the virtual audio
+# cable Unreal reads as a microphone -- a name fragment is enough, so "cable
+# input" matches "CABLE Input (VB-Audio Virtual Cable)". Null means the system
+# default output, which is what you want while developing without Unreal.
+output_device: null
+
+# Fade applied when speech is cancelled. Short, because barge-in should feel
+# like being interrupted rather than like a media player fading out. Perceived
+# cut-off is this plus the sink's buffer.
+cancel_fade_ms: 80
+
 voices:
   amanda:
-    provider: null          # set when the first TTS backend lands (epic 3)
+    # tone      -- the built-in stand-in: audible, correctly timed, not speech.
+    # command   -- any CLI engine; set argv below.
+    # Add a streaming cloud provider when one is chosen and measured.
+    provider: tone
     voice_id: null
     sample_rate: 24000
     format: pcm_s16le
-    # Pace is a performance control, not a fixed property of the voice.
+
+    # Used when provider is "command". One entry per argument, no shell.
+    #   espeak-ng: ["espeak-ng", "--stdout", "-s", "{rate}", "{text}"]
+    #   piper:     ["piper", "--model", "{voice}", "--output-raw", "--", "{text}"]
+    argv: null
+    expects_wav: true
+
+    # Pace is a performance control, not a property of the voice. Staying near
+    # 1.0 is the norm -- a voice that audibly changes speed between sentences
+    # draws attention to itself.
     pace:
       neutral_attentive: 1.00
+      listening: 1.00
       considering: 0.94
       warm: 0.97
+      mildly_amused: 0.99
+      concerned: 0.95
+      uncertain: 0.96
+      confused: 0.96
+      surprised: 1.04
       explaining: 1.02
+      enthusiastic: 1.06
       serious: 0.95

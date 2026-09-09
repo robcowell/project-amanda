@@ -14,10 +14,10 @@ this one and never calls Claude itself. See
 
 ## Status
 
-The renderer-facing half is built — protocol v1, the bridge that carries it,
-and a tested presence layer with a previsualiser to tune it — and so is the
-Claude half: streaming turns, cancellation, conversation state and phrase
-segmentation. What remains is speech: TTS, then the microphone loop.
+Phase 1 is complete end to end: protocol v1 and the bridge that carries it, a
+tested presence layer with a previsualiser, streaming Claude turns with
+cancellation, and speech synthesis with a provider-neutral interface. What
+remains is the microphone loop — VAD, STT and barge-in detection.
 
 | Area | State |
 |---|---|
@@ -28,8 +28,8 @@ segmentation. What remains is speech: TTS, then the microphone loop.
 | `performance/director.py` | Stub, needs the classifier call |
 | `claude/` | Implemented, 47 tests (epic 2) |
 | `runtime/metrics.py` | Implemented (T0–T6) |
-| `audio/tts.py` | Stub — next step (epic 3) |
-| `audio/{microphone,vad,stt}.py` | Stub, phase 2 (epic 5) |
+| `audio/{tts,providers,sink,speech}.py` | Implemented, 42 tests (epic 3) |
+| `audio/{microphone,vad,stt}.py` | Stub — next step, phase 2 (epic 5) |
 | `runtime/` | Stub |
 
 ## Layout
@@ -219,6 +219,53 @@ concerned it was never said — and follows it with a mid-conversation system
 message telling Claude it was cut off. That note needs a model that supports
 mid-conversation system messages: Opus 5 does, **Sonnet 5 returns a 400**, so
 set `interruption_notes: false` if you change model.
+
+## Speech
+
+`audio/tts.py` is the provider-neutral interface; `audio/speech.py` turns a
+stream of phrases into an utterance and owns the protocol's speech lifecycle.
+
+```python
+session = SpeechSession("u_1042", synthesizer, sink, voice, emit=bridge.send)
+await session.start()
+async for chunk in turn:
+    for phrase in segmenter.feed(chunk):
+        await session.add(phrase)
+session.close_input()
+await session.wait()          # or session.cancel() on barge-in
+```
+
+**Audio does not travel over the avatar protocol.** `speech.started` is a cue
+about audio arriving by a completely separate route — a virtual audio cable
+that Unreal reads as a microphone. So `audio/sink.py` exists to put PCM on a
+named *device*, and choosing that device is a first-class concern rather than a
+detail:
+
+```sh
+python3 tools/speak.py --devices
+python3 tools/speak.py "It rained most of the morning." --device "cable input"
+python3 tools/speak.py "A longer sentence to cut into." --interrupt-after 700
+```
+
+That last one is worth running with `--wav` and listening to. Interruption
+fades over `fade_ms` rather than cutting to zero, because a waveform stopped at
+a non-zero sample clicks — which is exactly the "stopping a media player"
+feeling the build plan wants barge-in to avoid.
+
+### Engines
+
+Two providers ship, and neither is the one this will run on:
+
+| Provider | What it is |
+|---|---|
+| `ToneSynthesizer` | Audible, correctly-timed audio that is not speech. Lets the whole pipeline be run and heard before an engine is chosen. |
+| `CommandSynthesizer` | Any CLI engine — espeak-ng, Piper, macOS `say` — via an argv template. No code per engine. |
+
+A streaming cloud engine is the likely production choice and is deliberately
+absent: an API client that has never run against the real service is code that
+looks finished and is not. `PROVIDER_NOTES` in `audio/providers.py` says what
+such a provider has to get right — chiefly that it must emit the first chunk
+before the last, or it has the interface without the behaviour.
 
 ## The Unreal side
 
