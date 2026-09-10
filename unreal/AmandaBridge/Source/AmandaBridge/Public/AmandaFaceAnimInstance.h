@@ -133,8 +133,34 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "Amanda|Presence")
 	bool bHasPresence = false;
 
+	/**
+	 * Names of the blueprint variables Epic's face graph already uses to rotate
+	 * the head.
+	 *
+	 * The rig's `CTRL_expressions_headTurn*` curves exist in the skeleton's
+	 * metadata and do nothing at runtime -- saturating them moved the head by
+	 * 0.6 of a pixel. The head is posed by the animation graph from a rotator
+	 * variable instead, so presence writes that variable by reflection and lets
+	 * the graph do what it already does.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Amanda|Presence")
+	FName HeadRotationVariable = TEXT("ARKit_HeadRotation");
+
+	/** The flag that gates whether the graph applies the head rotator at all. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Amanda|Presence")
+	FName HeadFromLiveLinkVariable = TEXT("LLink_Face_Head");
+
+	/** What to set that flag to. True is what makes the head move. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Amanda|Presence")
+	bool bEnableHeadRotationFlag = true;
+
+	/** Whether those variables were found. False means the head will not move. */
+	UPROPERTY(BlueprintReadOnly, Category = "Amanda|Presence")
+	bool bDrivingHead = false;
+
 private:
 	void ApplyToCurves(const TArray<FName>& Names, float Value);
+	void ApplyHeadRotation(const FRotator& Rotation);
 
 	UPROPERTY(Transient)
 	TObjectPtr<UAmandaPresenceComponent> Presence = nullptr;

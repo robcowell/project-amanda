@@ -180,7 +180,9 @@ private:
  */
 struct FAmandaDriftScheduler
 {
-	float Amplitude = 0.9f;
+	// Raised from 0.9 on 2026-09-10. At 0.9 the roll component came to a third
+	// of a degree, which Rob described as zero head tilt and was right about.
+	float Amplitude = 1.2f;
 
 	void Start(FRandomStream& Rng);
 	/** (yaw, pitch, roll) offsets in degrees. */

@@ -350,7 +350,10 @@ FVector FAmandaDriftScheduler::Update(float InNow)
 	return FVector(
 		Amplitude * (A * 0.6f + C * 0.4f),
 		Amplitude * 0.7f * (B * 0.7f + A * 0.3f),
-		Amplitude * 0.4f * C);
+		// Roll carries more of the drift than it did: a head that never tilts
+		// reads as a bust on a plinth, and tilt is most of what says someone is
+		// listening rather than facing you.
+		Amplitude * 0.7f * C);
 }
 
 // --------------------------------------------------------------------------- //

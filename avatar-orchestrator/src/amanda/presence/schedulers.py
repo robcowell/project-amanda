@@ -371,7 +371,9 @@ class DriftScheduler:
     """
 
     rng: random.Random
-    amplitude: float = 0.9  # degrees
+    #: Raised from 0.9 on 2026-09-10: its roll component came to a third of a
+    #: degree, which reads as no tilt at all on a rendered head.
+    amplitude: float = 1.2  # degrees
 
     _phases: tuple[float, float, float] = (0.0, 0.0, 0.0)
     _rates: tuple[float, float, float] = (0.0, 0.0, 0.0)
@@ -399,5 +401,7 @@ class DriftScheduler:
         return (
             self.amplitude * (a * 0.6 + c * 0.4),
             self.amplitude * 0.7 * (b * 0.7 + a * 0.3),
-            self.amplitude * 0.4 * c,
+            # Roll carries more of the drift than it did: a head that never
+            # tilts reads as a bust on a plinth.
+            self.amplitude * 0.7 * c,
         )

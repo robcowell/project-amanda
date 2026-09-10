@@ -70,12 +70,46 @@ void UAmandaFaceAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	const float HeadPitch = FMath::Clamp(Face.HeadPitch / HeadRange, -1.0f, 1.0f);
 	const float HeadRoll = FMath::Clamp(Face.HeadRoll / HeadRange, -1.0f, 1.0f);
 
+	// Kept for rigs where these curves are live. On this MetaHuman they are
+	// not: saturating them moves the head by 0.6 of a pixel, because the head
+	// is posed by the graph rather than by the face board at runtime.
 	ApplyToCurves(CurveNames.TurnLeft, FMath::Max(0.0f, -HeadYaw));
 	ApplyToCurves(CurveNames.TurnRight, FMath::Max(0.0f, HeadYaw));
 	ApplyToCurves(CurveNames.TurnUp, FMath::Max(0.0f, HeadPitch));
 	ApplyToCurves(CurveNames.TurnDown, FMath::Max(0.0f, -HeadPitch));
 	ApplyToCurves(CurveNames.TiltLeft, FMath::Max(0.0f, -HeadRoll));
 	ApplyToCurves(CurveNames.TiltRight, FMath::Max(0.0f, HeadRoll));
+
+	// The route that works: the blueprint's own head rotator.
+	ApplyHeadRotation(PresenceHeadRotation);
+}
+
+void UAmandaFaceAnimInstance::ApplyHeadRotation(const FRotator& Rotation)
+{
+	// By reflection, because the variables belong to the blueprint child rather
+	// than to this class. A native parent cannot name them at compile time, but
+	// it can find them on its own generated class -- and the graph downstream
+	// already knows what to do with them.
+	if (const FStructProperty* Property =
+		FindFProperty<FStructProperty>(GetClass(), HeadRotationVariable))
+	{
+		if (Property->Struct == TBaseStructure<FRotator>::Get())
+		{
+			*Property->ContainerPtrToValuePtr<FRotator>(this) = Rotation;
+			bDrivingHead = true;
+		}
+	}
+
+	// True, not false. The first guess was that this flag lets Live Link claim
+	// the head and should be turned off; it is the other way round -- it gates
+	// whether the graph applies the head rotator at all. With it false the
+	// rotator was written faithfully every frame and read by nobody, which
+	// looked exactly like a locked head.
+	if (const FBoolProperty* Flag =
+		FindFProperty<FBoolProperty>(GetClass(), HeadFromLiveLinkVariable))
+	{
+		Flag->SetPropertyValue_InContainer(this, bEnableHeadRotationFlag);
+	}
 }
 
 void UAmandaFaceAnimInstance::ApplyToCurves(const TArray<FName>& Names, float Value)
