@@ -19,6 +19,8 @@ grey skin and no eyelashes -- which would read as a damning verdict on the
 render rather than on the timing of the screenshot.
 """
 
+import os
+
 import unreal
 
 LEVEL = "/Game/Amanda/Maps/LookDev"
@@ -26,15 +28,20 @@ CAMERA_LABEL = "PortraitCamera"
 
 #: Roughly twenty seconds at 60fps of doing nothing while the engine catches up.
 SETTLE_TICKS = 1200
-#: And a moment after the shot is requested, before quitting out from under it.
+#: And a moment after the last shot, before quitting out from under it.
 FINISH_TICKS = 180
+
+#: How many frames to take, and how far apart. One still cannot show whether a
+#: face is moving; a burst can. Set AMANDA_SHOTS=1 for a single portrait.
+SHOTS = int(os.environ.get("AMANDA_SHOTS", "1"))
+SHOT_GAP_TICKS = int(os.environ.get("AMANDA_SHOT_GAP", "45"))
 
 #: Nothing happens until the editor has been ticking for a while. `-ExecCmds`
 #: fires during startup, when the level's actors do not exist yet -- looking for
 #: the camera then finds an empty world and gives up.
 OPEN_TICKS = 180
 
-state = {"ticks": 0, "handle": None, "phase": "opening"}
+state = {"ticks": 0, "handle": None, "phase": "opening", "taken": 0, "next_shot": 0}
 
 
 def world():
@@ -96,10 +103,23 @@ def tick(delta_seconds):
                 print(f"### settling, {state['ticks'] - OPEN_TICKS}/{SETTLE_TICKS} ticks")
             return
         shoot()
-        state["phase"] = "finishing"
+        state["taken"] = 1
+        state["next_shot"] = state["ticks"] + SHOT_GAP_TICKS
+        state["phase"] = "shooting" if SHOTS > 1 else "finishing"
         return
 
-    if state["ticks"] >= OPEN_TICKS + SETTLE_TICKS + FINISH_TICKS:
+    if state["phase"] == "shooting":
+        if state["ticks"] < state["next_shot"]:
+            return
+        shoot()
+        state["taken"] += 1
+        state["next_shot"] = state["ticks"] + SHOT_GAP_TICKS
+        if state["taken"] >= SHOTS:
+            state["phase"] = "finishing"
+            state["finish_at"] = state["ticks"] + FINISH_TICKS
+        return
+
+    if state["ticks"] >= state.get("finish_at", OPEN_TICKS + SETTLE_TICKS + FINISH_TICKS):
         unreal.unregister_slate_post_tick_callback(state["handle"])
         print("### done")
         unreal.SystemLibrary.execute_console_command(world(), "QUIT_EDITOR")
