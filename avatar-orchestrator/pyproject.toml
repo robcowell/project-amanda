@@ -19,7 +19,11 @@ dependencies = [
 audio = [
     "sounddevice>=0.4",
     "numpy>=1.26",
-    "webrtcvad>=2.0",
+    # Local speech recognition. Weights download on first use, into the
+    # Hugging Face cache rather than the repo.
+    "faster-whisper>=1.2",
+    # Local neural speech synthesis.
+    "piper-tts>=1.8",
 ]
 dev = [
     "pytest>=8.0",

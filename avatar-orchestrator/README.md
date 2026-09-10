@@ -30,7 +30,7 @@ remains is the microphone loop — VAD, STT and barge-in detection.
 | `runtime/metrics.py` | Implemented (T0–T6) |
 | `audio/{tts,providers,sink,speech}.py` | Implemented, 42 tests (epic 3) |
 | `audio/{microphone,vad}.py` | Implemented, 32 tests (phase 2, epic 5) |
-| `audio/stt.py` | Stub — next step |
+| `audio/{stt,whisper_provider}.py` | Implemented, 17 tests |
 | `runtime/` | Stub |
 
 ## Layout
@@ -382,6 +382,38 @@ absent: an API client that has never run against the real service is code that
 looks finished and is not. `PROVIDER_NOTES` in `audio/providers.py` says what
 such a provider has to get right — chiefly that it must emit the first chunk
 before the last, or it has the interface without the behaviour.
+
+## Hearing
+
+`audio/microphone.py` opens one capture stream and fans it out; `audio/vad.py`
+turns frames into utterances and separately watches for barge-in;
+`audio/stt.py` transcribes. The constants for the first two came from
+`~/code/jarvis` — see `docs/jarvis-overlap.md`.
+
+Whisper runs in-process for the same reason Piper does: the model is slow to
+load and fast to run. Measured here on a 2s utterance:
+
+| model | load | transcribe | |
+|---|---|---|---|
+| `tiny.en` | 3.9 s | ~590 ms | heard "folks down" for "Folkestone" |
+| **`base.en`** | 7.7 s | **~880 ms** | correct, and the default |
+| `small.en` | 14.2 s | ~2370 ms | 2.5x the cost for no accuracy gain |
+
+Two things about that. `tiny` is tempting for the 300 ms and loses proper
+nouns, which is the wrong trade when place names are what a reply hinges on.
+And ~880 ms makes transcription the second largest term in a turn after time to
+first token — it is pure added latency, because unlike Claude's first token
+there is no streaming to hide behind.
+
+**An optimisation not taken yet.** The endpointer waits 750 ms of silence
+before declaring an utterance over. Transcription could start on the audio
+so far during that window instead of after it, hiding most of its cost — worth
+roughly 750 ms, at the price of re-transcribing when more speech arrives.
+
+**Whisper hallucinates on silence.** A second of digital zero transcribes as
+"You" with `no_speech_prob` 0.768, against 0.000 for real speech. Segments above
+0.6 are dropped, because otherwise a door closing that got past the endpointer
+becomes a user turn and Claude answers it.
 
 ## The Unreal side
 

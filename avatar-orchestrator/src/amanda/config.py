@@ -176,6 +176,12 @@ def claude_settings() -> dict[str, Any]:
     return dict(settings) if isinstance(settings, dict) else {}
 
 
+def stt_settings() -> dict[str, Any]:
+    """The `stt:` block from config/avatar.yaml."""
+    settings = load("avatar.yaml").get("stt")
+    return dict(settings) if isinstance(settings, dict) else {}
+
+
 def default_pace() -> float | None:
     """Base delivery speed for the configured voice, if set."""
     pace = _default_entry().get("pace")

@@ -36,6 +36,24 @@ claude:
   # prompt grows.
   cache_system: true
 
+# Speech recognition. Sits between T0 and T1 and is pure added latency --
+# nothing downstream can start until it finishes, and unlike Claude's first
+# token there is no streaming to hide behind.
+stt:
+  # auto picks a real model if one is installed and falls back to canned text,
+  # so a machine without the weights still runs the pipeline.
+  engine: auto
+
+  # Measured on this laptop for a 2s utterance: tiny.en ~590ms but mishears
+  # proper nouns, base.en ~880ms and correct, small.en ~2370ms for no gain.
+  model: base.en
+  compute_type: int8
+  language: en
+
+  # Greedy. Beam search buys accuracy this workload does not need and costs
+  # latency it cannot afford.
+  beam_size: 1
+
 performance:
   # A second, deliberately cheap call classifies the performance so it never
   # contaminates the spoken text (build plan 6, option A).

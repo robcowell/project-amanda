@@ -79,6 +79,12 @@ Each of these cost something to learn.
   plays. Worth ~480ms.
 - **Config must never block startup.** A missing or unparseable file degrades to
   defaults with a warning.
+- **Whisper and Piper both load once, never per use.** Same lesson twice:
+  loading costs seconds, running costs hundreds of milliseconds. `warm()` pays
+  it at startup.
+- **Silence is suppressed before it becomes a turn.** Whisper transcribes
+  digital zero as "You" with high confidence; segments scoring above 0.6 on
+  `no_speech_prob` are dropped.
 - **One microphone stream, many consumers.** Endpointing, barge-in and later a
   wake word all subscribe to the same capture stream. Sequential exclusive
   ownership — each opening and closing the device in turn — cannot support
@@ -95,6 +101,8 @@ machine.
   those grounds. Full table in the orchestrator README.
 - **Sonnet 5 accepts mid-conversation system messages**, which the interruption
   note needs — the docs say it does not, and are wrong as of 2026-09-10.
+- **Transcription costs ~880ms** with `base.en` on this laptop, the second
+  largest term in a turn. `tiny.en` saves 300ms and mishears proper nouns.
 - **Voices differ in word-gap rate**, which reads as staccato: `cori-medium`
   0.79/sec against `jenny_dioco` 1.29. `cori-medium` at pace 1.55 is the
   configured voice. Piper's `length_scale` is markedly non-linear.
