@@ -118,8 +118,20 @@ and from a tick callback 300 ticks into a fully running editor, with 30-second
 timeouts. It fails identically on the physical Focusrite, so this is a property
 of calling it synchronously off the game thread rather than anything to do with
 virtual devices. `GetAudioDevices` and `CreateAudioSource` both work from
-script; only the subject step does not. The Live Link panel's **Presets** are
-the way to make the setup reproducible without a person wiring a dropdown.
+script; only the subject step does not.
+
+**A preset is what makes it reproducible instead.** `Content/Amanda/LL_AmandaAudio`
+holds the configured source, and `DefaultGame.ini` names it as
+`DefaultLiveLinkPreset`, so it restores on every editor launch and nobody wires
+a dropdown before a session. Configure the source by hand once, then
+`Scripts/save_livelink_preset.py` freezes the client into that asset.
+
+Two things about presets that cost an hour between them. A preset snapshots the
+*whole* client, so stray sources and subjects from earlier experiments end up in
+it. And it cannot be edited afterwards — `ULiveLinkPreset.Sources` and
+`.Subjects` are read-only from Python, and `BuildFromClient` is the only thing
+that writes them. So tidy the client first. A subject the panel refuses to
+remove goes when its source is removed.
 
 This is why audio does **not** travel over the avatar protocol: `speech.started`
 is a cue about audio arriving by a completely separate route.
