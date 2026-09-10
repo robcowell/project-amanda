@@ -122,9 +122,13 @@ script; only the subject step does not.
 
 **A preset is what makes it reproducible instead.** `Content/Amanda/LL_AmandaAudio`
 holds the configured source, and `DefaultGame.ini` names it as
-`DefaultLiveLinkPreset`, so it restores on every editor launch and nobody wires
-a dropdown before a session. Configure the source by hand once, then
+`DefaultLiveLinkPreset`. Configure the source by hand once, then
 `Scripts/save_livelink_preset.py` freezes the client into that asset.
+
+Verified on a cold editor start, 2026-09-10, with nobody touching anything:
+`Live Link: Applied 'LiveLinkPreset /Game/Amanda/LL_AmandaAudio'`, then
+`Created subject "Amanda"`, `Started`, `Run start`, `New static data`. The
+avatar's ear wires itself up.
 
 Two things about presets that cost an hour between them. A preset snapshots the
 *whole* client, so stray sources and subjects from earlier experiments end up in
