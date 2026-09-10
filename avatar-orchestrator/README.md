@@ -29,7 +29,8 @@ remains is the microphone loop — VAD, STT and barge-in detection.
 | `claude/` | Implemented, 47 tests (epic 2) |
 | `runtime/metrics.py` | Implemented (T0–T6) |
 | `audio/{tts,providers,sink,speech}.py` | Implemented, 42 tests (epic 3) |
-| `audio/{microphone,vad,stt}.py` | Stub — next step, phase 2 (epic 5) |
+| `audio/{microphone,vad}.py` | Implemented, 32 tests (phase 2, epic 5) |
+| `audio/stt.py` | Stub — next step |
 | `runtime/` | Stub |
 
 ## Layout

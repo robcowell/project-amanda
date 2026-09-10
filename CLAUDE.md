@@ -5,7 +5,8 @@ Python orchestrator and an Unreal renderer, speaking **protocol v1** over a
 local WebSocket.
 
 `claude-digital-human-avatar-build-plan.md` is the plan; section numbers below
-refer to it. `avatar-orchestrator/README.md` covers how to run things,
+refer to it. `docs/jarvis-overlap.md` cross-references `~/code/jarvis`, an
+earlier voice assistant of Rob's that several pieces here were ported from. `avatar-orchestrator/README.md` covers how to run things,
 `avatar-orchestrator/PROTOCOL.md` is the wire format.
 
 > Claude decides what to say. The performance director decides how the avatar
@@ -78,6 +79,11 @@ Each of these cost something to learn.
   plays. Worth ~480ms.
 - **Config must never block startup.** A missing or unparseable file degrades to
   defaults with a warning.
+- **One microphone stream, many consumers.** Endpointing, barge-in and later a
+  wake word all subscribe to the same capture stream. Sequential exclusive
+  ownership — each opening and closing the device in turn — cannot support
+  barge-in, which needs the microphone live while the avatar speaks. See
+  `docs/jarvis-overlap.md`.
 
 ## Measured, not assumed
 
