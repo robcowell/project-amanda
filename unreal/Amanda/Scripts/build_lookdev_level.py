@@ -6,10 +6,19 @@ judgement is worthless under whatever lighting a default level happens to have,
 so this builds a deliberate one and commits it, and every later look at the
 character is a look at the same room.
 
-    "D:\\unreal\\UE_5.8\\Engine\\Binaries\\Win64\\UnrealEditor-Cmd.exe" ^
+**Run this in a real editor, not a commandlet.** A commandlet will report every
+actor spawning happily and then save a 6 KB level with nothing in it: the
+spawns do not land in the world that gets written. Three separate things in
+this project have now needed a running editor -- baking MetaHuman textures,
+starting a Live Link subject, and this -- and the pattern is the same each
+time: asset operations are fine headless, anything touching a world or a
+renderer is not.
+
+    "D:\\unreal\\UE_5.8\\Engine\\Binaries\\Win64\\UnrealEditor.exe" ^
         "D:\\code\\project-amanda\\unreal\\Amanda\\Amanda.uproject" ^
-        -run=pythonscript -script="Scripts/build_lookdev_level.py" ^
-        -unattended -nopause -nosplash
+        -ExecCmds="py D:\\code\\project-amanda\\unreal\\Amanda\\Scripts\\build_lookdev_level.py"
+
+It quits the editor when it has saved, so it can be left to run.
 
 Three lights, which is portraiture rather than game lighting:
 
@@ -34,6 +43,20 @@ BUILD_PATH = "/Game/MetaHumans"
 #: here rather than at the origin: a face lit as though it were on the floor is
 #: a different face.
 EYE_HEIGHT = 160.0
+
+#: Average scene luminance the camera exposes for. Raise it to darken the
+#: image, lower it to brighten -- it is what the camera assumes the scene is,
+#: not a brightness dial.
+EXPOSURE = 160.0
+
+#: Which way the character faces. The assembled Blueprint does not face down
+#: its own +X, so spawning it unrotated puts it in profile to a camera standing
+#: in front of it. Measured off a render rather than reasoned about.
+CHARACTER_YAW = -90.0
+
+#: How far the camera stands back. At 85mm this is head and shoulders; closer
+#: than about two metres and an 85mm lens is inside the person's face.
+CAMERA_DISTANCE = 250.0
 
 #: Epic's own portrait environment, shipped with the character plugin. Ambient
 #: light with some direction in it beats a flat grey constant.
@@ -81,7 +104,7 @@ def build_lighting(head):
         "Key",
         unreal.Vector(150.0, -130.0, EYE_HEIGHT + 45.0),
         head,
-        lumens=6000.0,
+        lumens=3000.0,
         temperature=5600.0,
         width=90.0,
         height=120.0,
@@ -93,7 +116,7 @@ def build_lighting(head):
         "Fill",
         unreal.Vector(140.0, 140.0, EYE_HEIGHT - 10.0),
         head,
-        lumens=1500.0,
+        lumens=1000.0,
         temperature=6500.0,
         width=140.0,
         height=140.0,
@@ -102,7 +125,7 @@ def build_lighting(head):
         "Rim",
         unreal.Vector(-120.0, 90.0, EYE_HEIGHT + 70.0),
         head,
-        lumens=4000.0,
+        lumens=2500.0,
         temperature=7000.0,
         width=40.0,
         height=90.0,
@@ -138,27 +161,39 @@ def pin_exposure():
     volume.set_actor_label("Exposure")
     volume.set_editor_property("unbound", True)
     settings = volume.get_editor_property("settings")
+    # Pinned to the scene's actual average luminance, not to 1.0. A key light
+    # of a few thousand lumens a metre and a half from skin lands somewhere
+    # around 20 cd/m2; telling the camera to expose for 1.0 asks it to brighten
+    # by roughly four stops, which is exactly what the first render did.
     settings.set_editor_property("override_auto_exposure_min_brightness", True)
-    settings.set_editor_property("auto_exposure_min_brightness", 1.0)
+    settings.set_editor_property("auto_exposure_min_brightness", EXPOSURE)
     settings.set_editor_property("override_auto_exposure_max_brightness", True)
-    settings.set_editor_property("auto_exposure_max_brightness", 1.0)
+    settings.set_editor_property("auto_exposure_max_brightness", EXPOSURE)
     volume.set_editor_property("settings", settings)
-    print("### exposure pinned")
+    print(f"### exposure pinned at {EXPOSURE:.0f}")
 
 
 def find_metahuman():
-    """The assembled MetaHuman Blueprint, whatever the pipeline decided to name it."""
+    """The assembled MetaHuman Blueprint.
+
+    By where the assembly pipeline puts things rather than by inspecting parent
+    classes: `Blueprint.parent_class` is not reachable through
+    `get_editor_property`, and the layout here is not a guess -- assembly writes
+    `<build path>/<Character>/BP_<Character>` and puts the shared animation
+    blueprints in `<build path>/Common`, which is the only thing that has to be
+    excluded.
+    """
     candidates = [
         path
         for path in unreal.EditorAssetLibrary.list_assets(BUILD_PATH, recursive=True)
-        if unreal.EditorAssetLibrary.does_asset_exist(path)
+        if "/Common/" not in path
+        and path.rsplit("/", 1)[-1].startswith("BP_")
         and isinstance(unreal.load_asset(path), unreal.Blueprint)
     ]
-    for path in candidates:
-        blueprint = unreal.load_asset(path)
-        parent = blueprint.get_editor_property("parent_class")
-        if parent is not None and "MetaHuman" in str(parent.get_name()):
-            return path
+    if len(candidates) > 1:
+        print(f"### {len(candidates)} MetaHuman blueprints; taking the first")
+        for path in candidates:
+            print(f"###   {path}")
     return candidates[0] if candidates else None
 
 
@@ -169,33 +204,47 @@ def place_character():
         return None
 
     blueprint = unreal.load_asset(path)
-    actor = actors().spawn_actor_from_object(blueprint, unreal.Vector(0.0, 0.0, 0.0))
-    if actor is not None:
-        actor.set_actor_label("Amanda")
-        print(f"### placed {path}")
+    # From the generated class, not the Blueprint asset: spawning the asset
+    # returns None without saying why, which cost a silent run.
+    generated = blueprint.generated_class()
+    if generated is None:
+        print(f"### {path} has no generated class -- is it compiled?")
+        return None
+
+    actor = spawn(
+        generated,
+        unreal.Vector(0.0, 0.0, 0.0),
+        unreal.Rotator(0.0, 0.0, CHARACTER_YAW),
+    )
+    if actor is None:
+        print(f"### spawning {path} produced no actor")
+        return None
+
+    actor.set_actor_label("Amanda")
+    print(f"### placed {path}")
     return actor
 
 
 def add_camera(head):
     """A portrait lens at conversational distance, not a game camera."""
-    camera = spawn(unreal.CineCameraActor, unreal.Vector(120.0, 0.0, EYE_HEIGHT))
+    camera = spawn(unreal.CineCameraActor, unreal.Vector(CAMERA_DISTANCE, 0.0, EYE_HEIGHT))
     camera.set_actor_label("PortraitCamera")
     aim(camera, head)
 
     component = camera.get_cine_camera_component()
-    # 85mm at about a metre: the framing a person sees across a table, and the
-    # focal length that does not distort a face.
+    # 85mm at two and a half metres: head and shoulders, and the focal length
+    # that does not distort a face the way a wide lens does.
     component.set_editor_property("current_focal_length", 85.0)
     component.set_editor_property("current_aperture", 4.0)
     focus = component.get_editor_property("focus_settings")
     focus.set_editor_property("focus_method", unreal.CameraFocusMethod.MANUAL)
-    focus.set_editor_property("manual_focus_distance", 120.0)
+    focus.set_editor_property("manual_focus_distance", CAMERA_DISTANCE)
     component.set_editor_property("focus_settings", focus)
-    print("### camera: 85mm at f/4, focused on the eyes")
+    print(f"### camera: 85mm at f/4, {CAMERA_DISTANCE:.0f}cm back, focused on the eyes")
     return camera
 
 
-def main():
+def build():
     head = unreal.Vector(0.0, 0.0, EYE_HEIGHT)
 
     levels = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
@@ -207,8 +256,38 @@ def main():
     place_character()
     add_camera(head)
 
-    levels.save_current_level()
-    print("### saved")
+    actor_count = len(
+        unreal.get_editor_subsystem(unreal.EditorActorSubsystem).get_all_level_actors()
+    )
+    # Not save_current_level(): a level from new_level() has no filename yet, and
+    # that call fails with "Can't save the level because it doesn't have a
+    # filename" while the script above it reports success. Save by path.
+    world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
+    saved = unreal.EditorLoadingAndSavingUtils.save_map(world, LEVEL)
+    print(f"### saved {LEVEL} with {actor_count} actors: {saved}")
 
 
-main()
+#: `-ExecCmds` fires during startup, before the editor has a world worth
+#: spawning into. Everything waits for it to be running.
+OPEN_TICKS = 180
+
+state = {"ticks": 0, "handle": None, "done": False}
+
+
+def tick(delta_seconds):
+    state["ticks"] += 1
+    if state["done"] or state["ticks"] < OPEN_TICKS:
+        return
+    state["done"] = True
+    unreal.unregister_slate_post_tick_callback(state["handle"])
+    try:
+        build()
+    except Exception as error:  # noqa: BLE001 - diagnostic, report anything
+        print(f"### raised: {error!r}")
+    print("### done")
+    world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
+    unreal.SystemLibrary.execute_console_command(world, "QUIT_EDITOR")
+
+
+state["handle"] = unreal.register_slate_post_tick_callback(tick)
+print("### level build scheduled once the editor is up")

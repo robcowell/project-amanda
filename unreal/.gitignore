@@ -20,3 +20,15 @@ Amanda/Plugins/
 # Fab rather than from here. Content/ is deliberately not ignored wholesale --
 # levels, Blueprints and the animation graph are the project -- so add specific
 # asset directories here if they turn out to be too big to track.
+
+# Third-party MetaHuman packages exported from Fab. Hundreds of megabytes
+# each, redownloadable from the account that owns them, and not ours to
+# redistribute.
+Amanda/Import/
+
+# The assembled character: ~500 MB of skeletal meshes, materials and textures,
+# rebuilt from the Fab package by Scripts/import_metahuman.py and
+# Scripts/assemble_metahuman.py. Derived data, not source. The look-dev level
+# references it, so a fresh clone needs those scripts run before it opens.
+Amanda/Content/MetaHumans/
+Amanda/Content/Characters/
