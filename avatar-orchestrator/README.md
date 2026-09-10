@@ -16,8 +16,9 @@ this one and never calls Claude itself. See
 
 Phase 1 is complete end to end: protocol v1 and the bridge that carries it, a
 tested presence layer with a previsualiser, streaming Claude turns with
-cancellation, and speech synthesis with a provider-neutral interface. What
-remains is the microphone loop — VAD, STT and barge-in detection.
+cancellation, and speech synthesis with a provider-neutral interface. Phase 2
+added the microphone — VAD, STT, barge-in and a wake word — and phase 4 the
+performance director. The orchestrator half is built; the renderer half is not.
 
 | Area | State |
 |---|---|
@@ -25,7 +26,7 @@ remains is the microphone loop — VAD, STT and barge-in detection.
 | `avatar/websocket.py` | Implemented, 20 tests (epic 4) |
 | `presence/` | Implemented, 30 tests (phase 3, reference for Unreal) |
 | `performance/{schema,smoothing}.py` | Implemented (phase 4) |
-| `performance/director.py` | Stub, needs the classifier call |
+| `performance/director.py` | Implemented, 45 tests (phase 4) |
 | `claude/` | Implemented, 47 tests (epic 2) |
 | `runtime/metrics.py` | Implemented (T0–T6) |
 | `audio/{tts,providers,sink,speech}.py` | Implemented, 42 tests (epic 3) |
@@ -160,6 +161,12 @@ is set and the same pipeline runs against Claude. `--no-audio` runs it silently,
 `--device "cable input"` sends the voice into a virtual cable instead of the
 speakers, and `--engine espeak-ng` swaps the stand-in voice for a real one if
 you have it installed.
+
+Part-way through each reply the face changes expression: that is the performance
+director landing. Without a key it is a scripted stand-in cycling a fixed list —
+enough to exercise the bridge and the smoother, and emphatically not a cheap
+classifier. `--director none` turns it off entirely and leaves the conversation
+states driving the face on their own, which is the comparison worth making.
 
 The first phrase is allowed to be shorter than the rest, because it alone
 decides when speech *starts* — everything after it is synthesised while earlier
@@ -403,6 +410,72 @@ Typing *ahead* of the avatar is not interrupting it, and typed input has to
 check the clock to tell the difference. Voice input gets it free: the barge-in
 detector is only fed while armed, so nothing said before the avatar started
 counts against it.
+
+## The performance director
+
+`performance/director.py`. Claude decides what to say; a second, deliberately
+cheap call decides how the avatar inhabits the moment (§6, option A). Keeping
+them apart is the whole point — one call asked to do both writes stage
+directions into text that is about to be spoken aloud.
+
+It sees the user's message and Claude's reply, and returns one of the phase 4
+presets and an intensity. That is all. `PRESET_SHAPES` already says what each
+preset looks like and the renderer's smoother already interpolates toward it, so
+asking the classifier for per-region coefficients would be asking it to
+re-derive a table we have — and inviting it to over-act while doing so.
+
+**When it runs is the design.** Not before the turn: the reply is what is being
+classified. It fires once speech has begun and there is enough reply to judge
+(120 characters — the first phrase is deliberately short, and "It rained most of
+the morning," does not tell warm from concerned), then runs concurrently with
+synthesis and playback. It costs nothing from the T0–T6 budget.
+
+Landing a beat late is not a compromise. The renderer transitions over
+`transition_ms` rather than snapping, so a direction arriving a second into an
+utterance reads as an expression settling in — which is what a face does. One
+that snapped to the correct emotion on the first syllable would look like a mask
+being swapped.
+
+When it fails it returns nothing and the conversation-state envelope stands. An
+avatar driven by state alone still looks like it is participating; that is why
+the states own envelopes in the first place. `--director none` makes that the
+permanent behaviour, which is how you find out whether the classifier is
+earning its place.
+
+### Measured, September 2026
+
+`claude-haiku-4-5`, seven exchanges, structured output, this laptop:
+
+| | |
+|---|---|
+| classification | ~1300 ms (min 805) |
+| first call of a run | ~2050 ms — the schema is compiled once and cached 24h |
+| output | 17 tokens |
+
+The first-call penalty is why `warm()` exists and is called at startup: the
+first turn of a conversation is the one where the avatar most needs to look
+alive, and without it that turn pays the compile.
+
+Structured output is not a tax here, it is the fast path. The same prompt
+without a schema took ~1640 ms and 71 output tokens; with a schema *and* an
+explicit instruction to answer in one line, ~1730 ms and 92 tokens — the model
+went on to explain its reasoning both times, in prose that would then have
+needed parsing. Constraining the output shape is what keeps it to 17 tokens.
+
+The classifications themselves were restrained without being inert: four of
+seven `neutral_attentive`, `concerned` at 0.35 on both pieces of bad news,
+`mildly_amused` at 0.25 on the cat and the pot plant, nothing above 0.35 against
+a configured ceiling of 0.45.
+
+### The ceiling is enforced, not requested
+
+The prompt asks for intensity below 0.45. `max_intensity` in config is what
+holds when the model ignores it — structured outputs support `enum` but not
+`minimum`/`maximum`, so the range is ours to keep. This is the one place the
+project clamps rather than rejects: an out-of-range coefficient from our own
+code is a bug worth surfacing, but one from a model is a model ignoring an
+instruction, and the ceiling exists precisely for that. The `clamped` counter is
+the loud part.
 
 ## The wake word
 

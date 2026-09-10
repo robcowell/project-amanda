@@ -34,6 +34,8 @@ from amanda.claude.conversation import Conversation
 from amanda.claude.scripted import ScriptedClient
 from amanda.claude.segmenter import PhraseSegmenter
 from amanda.config import load_env
+from amanda.performance.director import MIN_REPLY_CHARS, Director
+from amanda.performance.director import build as build_director
 from amanda.runtime.input import ConversationInput, TypedInput, UserTurn, VoiceInput
 from amanda.runtime.metrics import Stage
 from amanda.runtime.state_machine import ConversationState, ConversationStateMachine
@@ -85,8 +87,19 @@ class Session:
         self.synthesizer, self.voice = build(
             args.engine, voice_id=args.voice_id, sample_rate=args.rate
         )
+        self.director: Director = self._build_director()
         self.input: ConversationInput = self._build_input()
         self.session_id = f"s_{uuid.uuid4().hex[:8]}"
+        #: The in-flight classification, if any. One turn at a time, so one task.
+        self.direction: asyncio.Task[None] | None = None
+
+    def _build_director(self) -> Director:
+        # The SDK client is shared with the conversational one so the classifier
+        # reuses an open connection rather than paying a handshake in the middle
+        # of an utterance. Scripted replies get a scripted director: a run with
+        # no key should still show the avatar changing expression.
+        name = self.args.director or ("scripted" if self.args.scripted else None)
+        return build_director(name, client=getattr(self.client, "client", None))
 
     def _build_input(self) -> ConversationInput:
         if not self.args.voice:
@@ -120,12 +133,17 @@ class Session:
                 f"model {self.model}, voice via {self.synthesizer.name} "
                 f"at {self.voice.sample_rate} Hz"
             )
+            print(f"performance director: {self.director.name}")
 
             warm = getattr(self.synthesizer, "warm", None)
             if warm is not None:
                 print("warming the voice model...", end="", flush=True)
                 await warm()
                 print(" ready")
+
+            # Pays the classifier's one-time schema compilation before the first
+            # turn rather than during it.
+            await self.director.warm()
 
             try:
                 await self.input.start()
@@ -201,8 +219,9 @@ class Session:
         # Arming before the first phrase would let a sound during the thinking
         # pause cancel an utterance that had not started.
         started = asyncio.Event()
+        self.direction = None
         speaking = asyncio.create_task(
-            self.speak(stream, segmenter, session, started), name="turn"
+            self.speak(stream, segmenter, session, started, user), name="turn"
         )
         interrupt = asyncio.create_task(self.watch_interrupt(started), name="interrupt")
 
@@ -215,6 +234,10 @@ class Session:
         interrupt.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await interrupt
+
+        # The utterance is over, so a direction arriving now would land on a
+        # face that is already settling back to rest.
+        await self.stop_direction()
 
         try:
             # asyncio.wait does not raise, so without this a failed turn shows
@@ -246,6 +269,7 @@ class Session:
         """
         stream.cancel()
         await session.cancel(CancelReason.BARGE_IN)
+        await self.stop_direction()
         speaking.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await speaking
@@ -261,7 +285,7 @@ class Session:
         await started.wait()
         await self.input.wait_for_barge_in()
 
-    async def speak(self, stream, segmenter, session, started: asyncio.Event) -> None:
+    async def speak(self, stream, segmenter, session, started: asyncio.Event, user) -> None:
         def begin() -> None:
             if started.is_set():
                 return
@@ -276,14 +300,61 @@ class Session:
                 begin()
                 print(f"  {phrase}")
                 await session.add(phrase)
+            self.consider_direction(user, stream, started)
 
         if tail := segmenter.flush():
             begin()
             print(f"  {tail}")
             await session.add(tail)
 
+        # Nothing more is coming, so classify what there is however short it is.
+        self.consider_direction(user, stream, started, final=True)
+
         session.close_input()
         await session.wait()
+
+    # ----------------------------------------------------------------- #
+
+    def consider_direction(self, user, stream, started, final: bool = False) -> None:
+        """Start the classification once, as soon as it is worth starting.
+
+        Two conditions, and both are about not fighting something else. Speech
+        must have begun, or the direction would override the THINKING envelope
+        while the avatar is still visibly considering. And enough of the reply
+        must exist to tell one delivery from another -- see MIN_REPLY_CHARS.
+        """
+        if self.direction is not None or not started.is_set():
+            return
+        if not final and len(stream.text) < MIN_REPLY_CHARS:
+            return
+        self.direction = asyncio.create_task(self.direct(user.text, stream.text), name="director")
+
+    async def direct(self, user_text: str, reply: str) -> None:
+        """Classify the delivery while the avatar is already speaking.
+
+        Sends straight to the bridge rather than returning a value, because the
+        point is that it lands the moment it arrives -- part-way through the
+        utterance, where the renderer's transition makes it read as an
+        expression settling in rather than a mask being swapped.
+        """
+        try:
+            update = await self.director.direct(user_text, reply)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - a classifier must never end a turn
+            log.debug("performance director failed", exc_info=True)
+            return
+        if update is None:
+            return
+        print(f"  [{update.preset.value} {update.intensity:.2f}]")
+        self.bridge.send(update)
+
+    async def stop_direction(self) -> None:
+        if self.direction is not None:
+            self.direction.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self.direction
+            self.direction = None
 
     async def report_failure(self, session: SpeechSession, exc: BaseException) -> None:
         """One bad turn should not end the conversation, but the renderer must
@@ -311,6 +382,10 @@ def main() -> int:
     parser.add_argument("--stt", help="whisper, scripted, or auto (the default)")
     parser.add_argument(
         "--wake", help="openwakeword, porcupine, or none to listen to everything"
+    )
+    parser.add_argument(
+        "--director",
+        help="performance classifier: claude, scripted, none, or auto (the default)",
     )
     parser.add_argument("--input-device", help="microphone, by index or name fragment")
     parser.add_argument(

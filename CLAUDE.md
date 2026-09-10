@@ -25,9 +25,10 @@ with canned replies through the real segmenter, TTS and bridge.
 
 ## Where things stand (2026-09-10)
 
-Built and tested, 269 tests: protocol v1, the WebSocket bridge, the presence
-layer with a previsualiser, the streaming Claude client, TTS with Piper, and the
-Phase 1 demo wiring typed input to a spoken, animated reply.
+Built and tested, 400 tests: protocol v1, the WebSocket bridge, the presence
+layer with a previsualiser, the streaming Claude client, TTS with Piper, the
+microphone loop (VAD, Whisper, barge-in, wake word), and the performance
+director. Typed or spoken input reaches a spoken, animated, classified reply.
 
 `unreal/AmandaBridge/` **now compiles**, against UE 5.8.2, as part of the
 `unreal/Amanda` project. Its four conformance suites pass in the editor's
@@ -132,6 +133,20 @@ Each of these cost something to learn.
   plays. Worth ~480ms.
 - **Config must never block startup.** A missing or unparseable file degrades to
   defaults with a warning.
+- **The performance director runs beside the utterance, not in front of it.** It
+  fires once speech has begun and ~120 characters of reply exist, then lands
+  part-way through. Arriving late is correct: the renderer transitions over
+  `transition_ms`, so it reads as an expression settling rather than a mask
+  being swapped. Moving it earlier would put ~1.3s on the critical path to buy
+  a worse classification.
+- **The director clamps intensity; it does not reject it.** The one exception to
+  producer-rejects. An out-of-range value from our code is a bug worth
+  surfacing; one from a model is a model ignoring an instruction, and
+  `max_intensity` exists for exactly that. The `clamped` counter is the loud
+  part.
+- **The scripted director is a stand-in, not a fallback.** It cycles a fixed
+  list and reads neither argument. A keyword heuristic there would look like a
+  cheap classifier and be believed.
 - **Whisper and Piper both load once, never per use.** Same lesson twice:
   loading costs seconds, running costs hundreds of milliseconds. `warm()` pays
   it at startup.
@@ -170,6 +185,14 @@ machine.
 - **Voices differ in word-gap rate**, which reads as staccato: `cori-medium`
   0.79/sec against `jenny_dioco` 1.29. `cori-medium` at pace 1.55 is the
   configured voice. Piper's `length_scale` is markedly non-linear.
+- **A Haiku 4.5 classification costs ~1.3s**, not the few hundred ms it is easy
+  to assume. The first call of a run costs ~2.0s because a new JSON schema is
+  compiled once and cached 24h — which is what `PerformanceDirector.warm()` is
+  for.
+- **Structured output is the fast path, not a tax.** Same classifier prompt:
+  ~1.3s and 17 output tokens with a schema, ~1.6s and 71 without. Told in prose
+  to answer in one line it still explained itself, at 92 tokens. Constraining
+  the shape is what stops the model editorialising.
 - **UE 5.8.2 accepted MSVC 14.50 (Visual Studio 2026)** and the 10.0.26100 SDK.
   UE 5.7 documents 14.44 as preferred, so a VS 2022 install had been budgeted
   for and turned out to be unnecessary.

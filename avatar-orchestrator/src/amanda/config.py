@@ -188,6 +188,17 @@ def stt_settings() -> dict[str, Any]:
     return dict(settings) if isinstance(settings, dict) else {}
 
 
+def performance_settings() -> dict[str, Any]:
+    """The `performance:` block from config/avatar.yaml.
+
+    Read by the director, which maps the prose-ish keys onto its own fields.
+    The nested `smoothing:` block belongs to the renderer's smoother and is
+    passed through untouched.
+    """
+    settings = load("avatar.yaml").get("performance")
+    return dict(settings) if isinstance(settings, dict) else {}
+
+
 def default_pace() -> float | None:
     """Base delivery speed for the configured voice, if set."""
     pace = _default_entry().get("pace")
