@@ -27,10 +27,11 @@ speech events are cues about audio arriving elsewhere.
 
 ## Where things stand
 
-Phase 1 is complete end to end: type a message and hear Claude answer through
-the avatar, with the face driven by the same protocol Unreal will receive.
+**The orchestrator half is built; the renderer half is not.** Speak to it and
+Claude answers aloud, with the face driven by the same protocol Unreal will
+receive — but that face is currently a schematic one in a browser.
 
-Built and tested:
+Built and tested, 400 tests:
 
 - protocol v1, and the WebSocket bridge that carries it;
 - the presence layer — blink, gaze, breathing, drift — with a previsualiser
@@ -38,14 +39,21 @@ Built and tested:
 - the Claude client: streaming turns, phrase segmentation, cancellation;
 - speech synthesis behind a provider-neutral interface, with Piper as the
   default engine;
-- performance smoothing: transitions, hysteresis and decay.
+- the input path: microphone fan-out, voice activity detection, endpointing,
+  Whisper, barge-in and a wake word;
+- the conversation state machine, and its animation envelope per state;
+- the performance director — a second, cheap call classifying how each reply
+  should be delivered — and the smoothing that keeps it restrained.
 
-Written but never compiled (no Unreal on the development machine):
+Compiles, against UE 5.8.2, with its conformance suites passing in the editor's
+automation runner:
 
-- the C++ bridge subsystem and its conformance tests.
+- the C++ bridge subsystem, decoding a fixture the Python side generates.
 
-Still stubs: the microphone loop — capture, voice activity detection and STT —
-the performance director's classifier call, and the conversation state machine.
+Not started, and the reason nothing here is proven yet: **the visual premise.**
+No MetaHuman, no lighting, no look-dev. §17 of the plan is blunt that if the
+neutral render is unconvincing, animation does not rescue it. See
+[`unreal/PHASE0.md`](unreal/PHASE0.md).
 
 ## Getting started
 
@@ -59,4 +67,21 @@ python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
 ```
 
 That drives a stand-in renderer with a realistic conversational turn, exercising
-every event in the protocol without Claude, TTS or a microphone.
+every event in the protocol without Claude, TTS or a microphone. To hold a real
+conversation instead, set `ANTHROPIC_API_KEY` and run `python -m amanda.main`
+(add `--voice` to speak to it, `--scripted` to run with no key at all);
+[`avatar-orchestrator/README.md`](avatar-orchestrator/README.md) covers the rest.
+
+## The one thing worth testing first
+
+The plan assumes a virtual audio cable can carry TTS from the orchestrator into
+a MetaHuman Audio Live Link source. It is the only open assumption that could
+change the architecture, and half of it needs no engine at all:
+
+```sh
+.venv/bin/python tools/audio_route_check.py --list
+.venv/bin/python tools/audio_route_check.py --say "Can you see my face move?"
+```
+
+If audio played by this process cannot be captured from a recording device,
+there is no point installing anything else until it can.

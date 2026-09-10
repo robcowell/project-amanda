@@ -10,9 +10,27 @@ protocol v1, with its face moving in real time from audio the orchestrator
 played. Everything below is in the order that answers the riskiest question
 soonest.
 
+## Where this has got to (2026-09-10)
+
+The steps below were written before any of them had been done, and the first
+day on the renderer machine overtook several without amending them. As things
+stand:
+
+| Step | |
+|---|---|
+| 1. Virtual cable | **Blocked.** VB-CABLE not installed, and the machine has no active capture device at all — paired-but-disconnected Bluetooth headsets do not count. Install, reboot, then `--list`. |
+| 2. Unreal 5.8.2 | Done. `D:\unreal\UE_5.8`. Accepted MSVC 14.50; the 14.44 fallback below was not needed. |
+| 3. The project | Done. `unreal/Amanda`, with `Plugins/AmandaBridge` a junction back to `unreal/AmandaBridge`. |
+| 4. Build the plugin | Done. Compiles against 5.8.2. |
+| 5. Prove the bridge | Half. The four conformance suites pass in the automation runner; the live socket into a running editor has not been tried. |
+| 6. A MetaHuman in a lit scene | Not started. MetaHuman ships inside 5.8.2 and is enabled. |
+| 7. The Live Link audio spike | Not started, and gated on step 1. Narrowed, though: see CLAUDE.md — the source enumerates WASAPI endpoints, which is what a virtual cable registers as, and it can be created from script. |
+
+The riskiest question is still unanswered, and it is still step 1.
+
 ## The machine
 
-Measured 2026-09-10 on the Windows PC:
+Measured 2026-09-10 on the Windows PC, before any of the above:
 
 | | |
 |---|---|

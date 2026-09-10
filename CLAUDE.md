@@ -42,7 +42,9 @@ lighting, no look-dev. **The visual premise is still entirely unproven**, and
 rescue it.
 
 The audio input path — microphone, VAD, endpointing, STT, wake word — landed on
-`main` from the laptop on 2026-09-10, ported from `~/code/jarvis`.
+`main` from the laptop on 2026-09-10, ported from `~/code/jarvis`, followed by
+the performance director. The orchestrator half is now complete: `unreal/` is
+where the remaining work is.
 
 A **second, independent implementation** of the same path sits on the branch
 `phase2-mic-loop`, written on the Windows machine before that work was assigned
@@ -89,6 +91,12 @@ hour to test: install VB-CABLE, play a WAV into it, see whether a Live Link
 source moves the face. **Do this before building anything in Unreal that depends
 on it.** Fallbacks: a runtime ONNX audio-to-face plugin from Fab, or baking each
 utterance offline (kills latency, proves everything else).
+
+It splits in two, and **only the second half needs Unreal**: whether audio can
+travel from this process into a capture device at all, and whether the Live Link
+source will accept that device. `avatar-orchestrator/tools/audio_route_check.py`
+answers the first on any machine, with no engine, no MetaHuman and no GPU. If it
+fails there is no point opening the editor to find out about the second.
 
 **Narrowed on 2026-09-10, not yet closed.** On Windows the MetaHuman local Live
 Link source depends on `AudioMixerWasapi` and enumerates WASAPI endpoints, which
