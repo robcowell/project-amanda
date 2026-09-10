@@ -94,6 +94,10 @@ def add_light(name, location, target, *, lumens, temperature, width, height):
     # Soft shadows from a large source; the default bias makes a hard edge that
     # reads as a game light.
     component.set_editor_property("cast_shadows", True)
+    # Movable, so nothing needs baking. A look-dev scene gets its lights nudged
+    # constantly, and stationary lights answer that with "LIGHTING NEEDS TO BE
+    # REBUILT" across the viewport until someone builds them.
+    component.set_editor_property("mobility", unreal.ComponentMobility.MOVABLE)
     aim(light, target)
     print(f"###   {name}: {lumens:.0f} lm at {temperature:.0f}K")
     return light
@@ -147,6 +151,7 @@ def build_lighting(head):
         print(f"###   ambient: {PORTRAIT_CUBEMAP} not found, using the default sky")
     component.set_editor_property("intensity", 1.0)
     component.set_editor_property("real_time_capture", False)
+    component.set_editor_property("mobility", unreal.ComponentMobility.MOVABLE)
 
 
 def pin_exposure():
@@ -221,6 +226,23 @@ def place_character():
         return None
 
     actor.set_actor_label("Amanda")
+
+    # A skeletal mesh only evaluates its animation blueprint outside Play mode
+    # when told to, so the face would otherwise hold its rest pose in the
+    # viewport however correctly Live Link is wired.
+    #
+    # Guarded, because on a Blueprint actor these components are templates and
+    # the engine refuses: "cannot be edited on templates". Unguarded it threw
+    # here, which aborted the build before the camera was added and before the
+    # level was saved -- leaving an empty level and a puzzle. Play mode does not
+    # need this flag, and Play mode is where the product runs.
+    for component in actor.get_components_by_class(unreal.SkeletalMeshComponent):
+        try:
+            component.set_editor_property("update_animation_in_editor", True)
+            print(f"###   {component.get_name()}: animating in editor")
+        except Exception as error:  # noqa: BLE001 - editor preview only
+            print(f"###   {component.get_name()}: not animatable in editor ({error})")
+
     print(f"### placed {path}")
     return actor
 

@@ -28,6 +28,11 @@
 			"Enabled": true
 		},
 		{
+			"Comment": "The thing that actually turns speech into face. Its one module, SpeechAnimationSolver, is what MetaHumanLiveLink's audio source solves with -- and the plugin is EnabledByDefault false, so without this line the Live Link subject receives audio, reports itself live, and drives nothing. The face sits in a slack-jawed rest pose and looks for all the world like a bug in the wiring. Beta, per Epic.",
+			"Name": "StreamingADA",
+			"Enabled": true
+		},
+		{
 			"Name": "PythonScriptPlugin",
 			"Enabled": true
 		}
