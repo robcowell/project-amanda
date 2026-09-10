@@ -33,7 +33,6 @@ performance director. The orchestrator half is built; the renderer half is not.
 | `audio/{microphone,vad}.py` | Implemented, 32 tests (phase 2, epic 5) |
 | `audio/{stt,whisper_provider}.py` | Implemented, 17 tests |
 | `runtime/{state_machine,input,metrics}.py` | Implemented, 24 tests |
-| `runtime/interruption.py` | Folded into `input.py` and `main.py` |
 
 ## Layout
 
@@ -44,7 +43,7 @@ src/amanda/
   performance/  the performance director, its schema and smoothing
   presence/     blink, gaze, breath and drift -- reference logic for the renderer
   avatar/       protocol v1 and the local WebSocket bridge
-  runtime/      conversation state machine, interruption, telemetry
+  runtime/      conversation state machine, where turns come from, telemetry
 config/         avatar.yaml, voices.yaml -- no secrets
 tools/          previz, sample session emitter and server, mock renderer
 tests/

@@ -1,1 +1,1 @@
-"""Conversation state machine, interruption handling and telemetry."""
+"""Conversation state machine, where turns come from, and telemetry."""
