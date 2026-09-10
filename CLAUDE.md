@@ -40,10 +40,15 @@ lighting, no look-dev. **The visual premise is still entirely unproven**, and
 §17 is blunt that if the neutral render is unconvincing, animation does not
 rescue it.
 
-An audio input path — microphone, VAD, endpointing, STT — is on the branch
-`phase2-mic-loop`, written here before that work moved to the laptop. It is
-deliberately not on `main`; do not merge it without comparing against the
-laptop's version.
+The audio input path — microphone, VAD, endpointing, STT, wake word — landed on
+`main` from the laptop on 2026-09-10, ported from `~/code/jarvis`.
+
+A **second, independent implementation** of the same path sits on the branch
+`phase2-mic-loop`, written on the Windows machine before that work was assigned
+to the laptop. It is superseded and must not be merged wholesale — the two were
+written blind of each other and disagree about ownership. It is kept only in
+case a specific idea in it is worth lifting; the branch is disposable and
+deleting it is a reasonable outcome.
 
 ## Running the renderer on the Windows PC
 
