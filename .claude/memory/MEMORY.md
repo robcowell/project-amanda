@@ -1,0 +1,2 @@
+- [Amanda machine split](amanda-machine-split.md) — Linux laptop can't run Unreal; Windows renderer box not yet set up; no API key locally
+- [Amanda Live Link unknown](amanda-livelink-unknown.md) — the unverified virtual-audio-cable assumption that gates all Unreal work
