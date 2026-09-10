@@ -350,3 +350,16 @@ async def test_the_two_detectors_share_one_stream():
 
     assert len(utterances) == 1
     assert interruptions == 1
+
+
+def test_an_utterance_reports_how_much_of_it_was_voiced():
+    """Buffer length always exceeds it: pre-roll at the front, the silence that
+    ended the utterance at the back. Thresholding noise on the buffer length
+    therefore passes a cough."""
+    endpointer = Endpointer()
+    found = feed_all(endpointer, frames(VOICE, 0.5) + frames(0, 1.2))
+
+    assert len(found) == 1
+    utterance = found[0]
+    assert utterance.voiced_ms == pytest.approx(500, abs=100)
+    assert utterance.duration_ms > utterance.voiced_ms + 500

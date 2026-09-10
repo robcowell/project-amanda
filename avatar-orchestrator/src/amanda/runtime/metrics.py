@@ -67,6 +67,14 @@ class TurnMetrics:
         """
         return self.marks.setdefault(stage, self.clock())
 
+    def mark_at(self, stage: Stage, when: float) -> float:
+        """Record a stage that happened elsewhere.
+
+        Voice input knows when the user stopped speaking and when the transcript
+        was ready; it should not have to know about this class to say so.
+        """
+        return self.marks.setdefault(stage, when)
+
     def elapsed_ms(self, start: Stage, end: Stage) -> int | None:
         """Milliseconds between two marks, or None if either is missing."""
         if start not in self.marks or end not in self.marks:

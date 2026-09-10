@@ -57,6 +57,14 @@ class Utterance:
     pcm: bytes
     sample_rate: int
 
+    #: How much of it was voiced, as against how long the buffer is.
+    #:
+    #: The two differ by about a second and always in the same direction: an
+    #: utterance carries its pre-roll at the front and the silence that ended it
+    #: at the back. Filtering noise on `duration_ms` therefore does nothing --
+    #: a 0.4s cough arrives as a 1.3s buffer. This is the number to threshold.
+    voiced_ms: int = 0
+
     @property
     def duration_ms(self) -> int:
         return pcm_duration_ms(self.pcm, self.sample_rate)
@@ -151,7 +159,11 @@ class Endpointer:
             self._pre_roll_ms -= _frame_ms(self._history.popleft(), self.sample_rate)
 
     def _finish(self) -> Utterance:
-        utterance = Utterance(pcm=b"".join(self._captured), sample_rate=self.sample_rate)
+        utterance = Utterance(
+            pcm=b"".join(self._captured),
+            sample_rate=self.sample_rate,
+            voiced_ms=round(self._voiced_ms),
+        )
         self.reset()
         return utterance
 

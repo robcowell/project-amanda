@@ -1,19 +1,17 @@
-"""Phase 1: type a message, hear a spoken reply, watch the avatar deliver it.
+"""The conversation loop.
 
-This is the build plan's shortest useful path (section 26) -- typed input rather
-than a microphone, so the first experiment answers the question that matters
-without STT and voice activity detection in the way:
+Phase 1 was typed input to a spoken, animated reply (§26). Phase 2 adds the
+microphone, and the only thing that changes is where turns come from — the
+state machine, the speech pipeline and the bridge are the same either way. See
+`runtime/input.py` for why that abstraction exists.
 
-    text input -> Claude -> TTS -> bridge -> avatar speech
+    python3 tools/previz.py               # in another terminal
+    python3 -m amanda.main                # typed
+    python3 -m amanda.main --voice        # spoken
 
-Run it alongside the previsualiser and the face is driven by the same protocol
-Unreal will eventually receive:
-
-    python3 tools/previz.py            # then open http://127.0.0.1:8766/previz.html
-    python3 -m amanda.main             # this, in another terminal
-
-Typing while the avatar is speaking interrupts it, which is the barge-in path
-from build plan 13 exercised by hand.
+Everything downstream of the model degrades rather than failing: no credentials
+means canned replies, no voice model means a stand-in, no microphone means
+typed input. A machine with none of them still runs the whole pipeline.
 """
 
 from __future__ import annotations
@@ -22,30 +20,28 @@ import argparse
 import asyncio
 import contextlib
 import logging
-import sys
 import uuid
 
 from amanda.audio.engines import ENGINES, build, describe
+from amanda.audio.microphone import Microphone
 from amanda.audio.sink import DeviceSink, NullSink
 from amanda.audio.speech import SpeechSession
+from amanda.audio.stt import build as build_recognizer
 from amanda.avatar.protocol import CancelReason, SessionEnded, SessionStarted, UserDetected
 from amanda.avatar.websocket import DEFAULT_HOST, DEFAULT_PORT, AvatarBridge
 from amanda.claude.conversation import Conversation
 from amanda.claude.scripted import ScriptedClient
 from amanda.claude.segmenter import PhraseSegmenter
 from amanda.config import load_env
+from amanda.runtime.input import ConversationInput, TypedInput, UserTurn, VoiceInput
 from amanda.runtime.metrics import Stage
 from amanda.runtime.state_machine import ConversationState, ConversationStateMachine
 
 log = logging.getLogger("amanda")
 
-def build_client(args: argparse.Namespace):
-    """Claude when there are credentials, canned replies otherwise.
 
-    Falling back rather than failing is deliberate: everything downstream of the
-    model -- segmentation, synthesis, playback, the protocol, the latency marks
-    -- is worth exercising on a machine that has no key.
-    """
+def build_client(args: argparse.Namespace):
+    """Claude when there are credentials, canned replies otherwise."""
     if args.scripted:
         return ScriptedClient(), "scripted"
 
@@ -65,7 +61,7 @@ def build_client(args: argparse.Namespace):
 
     # Checked here rather than caught later: the SDK constructs happily without
     # a credential and only fails when a request is made, which is after the
-    # user has typed something and waited.
+    # user has spoken and waited.
     if not client.has_credentials:
         print(
             "  no Anthropic credentials found. Set ANTHROPIC_API_KEY, or run\n"
@@ -77,7 +73,7 @@ def build_client(args: argparse.Namespace):
 
 
 class Session:
-    """One run of the demo: a bridge, a conversation, and a turn loop."""
+    """One run: a bridge, an input source, and a turn loop."""
 
     def __init__(self, args: argparse.Namespace) -> None:
         self.args = args
@@ -85,14 +81,19 @@ class Session:
         self.states = ConversationStateMachine()
         self.conversation = Conversation()
         self.client, self.model = build_client(args)
-        # The sample rate follows the engine unless overridden: a mismatch is
-        # refused rather than resampled, so the default has to be right.
         self.synthesizer, self.voice = build(
-            args.engine, voice_id=args.voice, sample_rate=args.rate
+            args.engine, voice_id=args.voice_id, sample_rate=args.rate
         )
-        self.typed: asyncio.Queue[str] = asyncio.Queue()
+        self.input: ConversationInput = self._build_input()
         self.session_id = f"s_{uuid.uuid4().hex[:8]}"
-        self.eof = False
+
+    def _build_input(self) -> ConversationInput:
+        if not self.args.voice:
+            return TypedInput()
+        return VoiceInput(
+            microphone=Microphone(device=self.args.input_device),
+            recognizer=build_recognizer(self.args.stt),
+        )
 
     # ----------------------------------------------------------------- #
 
@@ -107,84 +108,75 @@ class Session:
             return NullSink(realtime=True)
         return DeviceSink(device=self.args.device)
 
-    async def read_stdin(self) -> None:
-        loop = asyncio.get_running_loop()
-        while True:
-            line = await loop.run_in_executor(None, sys.stdin.readline)
-            if not line:
-                await self.typed.put("")
-                return
-            await self.typed.put(line.strip())
-
-    # ----------------------------------------------------------------- #
-
     async def run(self) -> int:
         async with self.bridge:
             print(f"bridge on ws://{self.bridge.host}:{self.bridge.port}")
             print(
-            f"model {self.model}, voice via {self.synthesizer.name} "
-            f"at {self.voice.sample_rate} Hz"
-        )
-            print("type a message; type again while it speaks to interrupt; ctrl-d to quit\n")
+                f"model {self.model}, voice via {self.synthesizer.name} "
+                f"at {self.voice.sample_rate} Hz"
+            )
 
-            # Neural engines load a model that takes seconds. Paying that on
-            # the first phrase of the first turn would put it straight into the
-            # latency budget; paying it here costs nobody anything.
             warm = getattr(self.synthesizer, "warm", None)
             if warm is not None:
                 print("warming the voice model...", end="", flush=True)
                 await warm()
-                print(" ready\n")
+                print(" ready")
+
+            try:
+                await self.input.start()
+            except Exception as exc:  # noqa: BLE001 - fall back rather than fail
+                print(f"  (could not open the microphone: {exc}; falling back to typing)")
+                self.args.voice = False
+                self.input = TypedInput()
+                await self.input.start()
+
+            print(
+                "speak, then pause"
+                if self.args.voice
+                else "type a message; type again while it speaks to interrupt"
+            )
+            print("ctrl-d to quit\n")
 
             self.bridge.send(SessionStarted(session_id=self.session_id))
             self.bridge.send(UserDetected(present=True))
             self.enter(ConversationState.ATTENTIVE)
 
-            reader = asyncio.create_task(self.read_stdin(), name="stdin")
             try:
                 await self.loop()
             finally:
-                reader.cancel()
+                await self.input.stop()
                 self.bridge.send(SessionEnded(session_id=self.session_id, reason="quit"))
                 await asyncio.sleep(0.05)
         return 0
 
     async def loop(self) -> None:
-        pending: str | None = None
         while True:
-            if self.eof:
-                print()
-                return
-            print("> ", end="", flush=True)
-            message = pending if pending is not None else await self.typed.get()
-            pending = None
-
-            if not message:
-                print()
-                return
-            if message.lower() in {"quit", "exit"}:
-                return
+            if not self.args.voice:
+                print("> ", end="", flush=True)
 
             self.enter(ConversationState.LISTENING)
-            pending = await self.turn(message)
+            turn = await self.input.next_turn()
+            if turn is None:
+                print()
+                return
 
-    async def turn(self, message: str) -> str | None:
-        """One exchange. Returns the interrupting message, if there was one."""
-        self.conversation.user(message)
-        turn = self.client.start_turn(self.conversation.messages())
-        metrics = turn.metrics
+            if self.args.voice:
+                print(f"> {turn.text}")
+            await self.turn(turn)
 
-        # Typed input, so T0 and T1 are the same instant -- there is no speech to
-        # end and no transcript to finalise.
-        metrics.mark(Stage.USER_SPEECH_ENDED)
-        metrics.mark(Stage.TRANSCRIPT_FINAL)
+    async def turn(self, user: UserTurn) -> None:
+        """One exchange, from what the user said to the avatar settling."""
+        self.conversation.user(user.text)
+        stream = self.client.start_turn(self.conversation.messages())
+        metrics = stream.metrics
+        metrics.mark_at(Stage.USER_SPEECH_ENDED, user.ended_at)
+        metrics.mark_at(Stage.TRANSCRIPT_FINAL, user.ready_at)
 
         self.enter(ConversationState.THINKING)
 
-        utterance_id = f"u_{uuid.uuid4().hex[:6]}"
         segmenter = PhraseSegmenter()
         session = SpeechSession(
-            utterance_id=utterance_id,
+            utterance_id=f"u_{uuid.uuid4().hex[:6]}",
             synthesizer=self.synthesizer,
             sink=self.make_sink(),
             voice=self.voice,
@@ -194,35 +186,20 @@ class Session:
         )
         await session.start()
 
-        # Barge-in is only barge-in once there is something to barge into. Arming
-        # the watcher before the first phrase would let a line typed during the
-        # thinking pause cancel an utterance that had not started.
+        # Barge-in is only barge-in once there is something to barge into.
+        # Arming before the first phrase would let a sound during the thinking
+        # pause cancel an utterance that had not started.
         started = asyncio.Event()
         speaking = asyncio.create_task(
-            self.speak(turn, segmenter, session, started), name="turn"
+            self.speak(stream, segmenter, session, started), name="turn"
         )
         interrupt = asyncio.create_task(self.watch_interrupt(started), name="interrupt")
 
         done, _ = await asyncio.wait({speaking, interrupt}, return_when=asyncio.FIRST_COMPLETED)
 
         if interrupt in done:
-            barge_in = interrupt.result()
-            turn.cancel()
-            await session.cancel(CancelReason.BARGE_IN)
-            speaking.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await speaking
-
-            spoken = segmenter.spoken
-            print(f"\n  [interrupted after {session.result.spoken_ms}ms]")
-            self.conversation.assistant_interrupted(spoken)
-            self.enter(ConversationState.LISTENING)
-            self.conversation.user(barge_in)
-            self.conversation.note_interruption()
-            self.report(metrics)
-            # The interrupting text is the next turn's message, so the user does
-            # not have to say it twice.
-            return barge_in or None
+            await self.interrupted(stream, segmenter, session, speaking, metrics)
+            return
 
         interrupt.cancel()
         with contextlib.suppress(asyncio.CancelledError):
@@ -231,47 +208,49 @@ class Session:
         try:
             # asyncio.wait does not raise, so without this a failed turn shows
             # up only as "Task exception was never retrieved" and the loop
-            # carries on as though nothing happened.
+            # carries on as though nothing had happened.
             speaking.result()
         except Exception as exc:  # noqa: BLE001 - reported, never fatal
             await self.report_failure(session, exc)
-            return None
+            return
 
-        self.conversation.assistant(turn.text)
-        if turn.refusal is not None:
-            print(f"\n  [declined: {turn.refusal.category}]")
-        # SETTLING is a state, not a formality. Entering ATTENTIVE in the same
-        # breath overrides the settle transition before any of it is drawn, and
-        # the renderer sees two near-identical performance updates instead of a
-        # character coming to rest.
+        self.conversation.assistant(stream.text)
+        if stream.refusal is not None:
+            print(f"\n  [declined: {stream.refusal.category}]")
+
+        # SETTLING is a state, not a formality: entering ATTENTIVE in the same
+        # breath overrides the settle transition before any of it is drawn.
         self.enter(ConversationState.SETTLING)
         self.report(metrics)
         await asyncio.sleep(self.args.settle / 1000)
         self.enter(ConversationState.ATTENTIVE)
-        return None
 
-    async def watch_interrupt(self, started: asyncio.Event) -> str:
-        """Wait for the user to say something over the top of the avatar.
+    async def interrupted(self, stream, segmenter, session, speaking, metrics) -> None:
+        """Barge-in. Ordering matters and is the build plan's (§13).
 
-        An empty line is not an interruption -- pressing Enter with nothing
-        typed is not speech, and end of input means quit rather than barge in.
-        Either way the utterance is allowed to finish.
+        The renderer has already been told by `SpeechSession.cancel`, which
+        sends speech.cancelled before it fades the audio -- the visual
+        transition leads, because that is what makes an interruption feel like
+        being interrupted.
         """
-        await started.wait()
-        while True:
-            line = await self.typed.get()
-            if line:
-                return line
-            self.eof = True
-            await asyncio.Event().wait()  # never fires; the speech task wins
+        stream.cancel()
+        await session.cancel(CancelReason.BARGE_IN)
+        speaking.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await speaking
 
-    async def speak(
-        self,
-        turn,
-        segmenter: PhraseSegmenter,
-        session: SpeechSession,
-        started: asyncio.Event,
-    ) -> None:
+        print(f"\n  [interrupted after {session.result.spoken_ms}ms]")
+        # What was spoken, not what was generated: the tail was cancelled before
+        # synthesis, so as far as the conversation is concerned it was never said.
+        self.conversation.assistant_interrupted(segmenter.spoken)
+        self.enter(ConversationState.LISTENING)
+        self.report(metrics)
+
+    async def watch_interrupt(self, started: asyncio.Event) -> None:
+        await started.wait()
+        await self.input.wait_for_barge_in()
+
+    async def speak(self, stream, segmenter, session, started: asyncio.Event) -> None:
         def begin() -> None:
             if started.is_set():
                 return
@@ -281,7 +260,7 @@ class Session:
             started.set()
             print()
 
-        async for chunk in turn:
+        async for chunk in stream:
             for phrase in segmenter.feed(chunk):
                 begin()
                 print(f"  {phrase}")
@@ -296,12 +275,8 @@ class Session:
         await session.wait()
 
     async def report_failure(self, session: SpeechSession, exc: BaseException) -> None:
-        """Report a failed turn and leave the avatar somewhere sensible.
-
-        One bad turn -- a rate limit, a dropped connection, an engine that died
-        -- should not end the conversation, but the renderer must not be left
-        mid-utterance either.
-        """
+        """One bad turn should not end the conversation, but the renderer must
+        not be left mid-utterance either."""
         if session.announced:
             await session.cancel(CancelReason.ERROR)
         print(f"\n  [turn failed: {type(exc).__name__}: {exc}]")
@@ -316,16 +291,19 @@ class Session:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--voice", action="store_true", help="listen on the microphone")
     parser.add_argument("--host", default=DEFAULT_HOST)
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--scripted", action="store_true", help="canned replies, no API call")
     parser.add_argument("--model", help="overrides claude.model in config/avatar.yaml")
     parser.add_argument("--effort", help="overrides claude.effort in config/avatar.yaml")
+    parser.add_argument("--stt", help="whisper, scripted, or auto (the default)")
+    parser.add_argument("--input-device", help="microphone, by index or name fragment")
     parser.add_argument(
         "--engine", default="auto", choices=["auto", *sorted(ENGINES)],
         help="; ".join(describe()),
     )
-    parser.add_argument("--voice", help="engine-specific voice id or model path")
+    parser.add_argument("--voice-id", help="engine-specific voice id or model path")
     parser.add_argument("--device", help="output device, by index or name fragment")
     parser.add_argument("--no-audio", action="store_true", help="run silently")
     parser.add_argument("--rate", type=int, help="override the engine's native sample rate")
@@ -342,6 +320,7 @@ def main() -> int:
     # holds an API key.
     if loaded := load_env():
         print(f"loaded {', '.join(loaded)} from .env")
+
     with contextlib.suppress(KeyboardInterrupt, EOFError):
         return asyncio.run(Session(args).run())
     return 0

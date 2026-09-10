@@ -31,7 +31,8 @@ remains is the microphone loop — VAD, STT and barge-in detection.
 | `audio/{tts,providers,sink,speech}.py` | Implemented, 42 tests (epic 3) |
 | `audio/{microphone,vad}.py` | Implemented, 32 tests (phase 2, epic 5) |
 | `audio/{stt,whisper_provider}.py` | Implemented, 17 tests |
-| `runtime/` | Stub |
+| `runtime/{state_machine,input,metrics}.py` | Implemented, 24 tests |
+| `runtime/interruption.py` | Folded into `input.py` and `main.py` |
 
 ## Layout
 
@@ -142,7 +143,8 @@ Everything except the microphone, on a machine with no GPU and no API key.
 
 ```sh
 python3 tools/previz.py                # http://127.0.0.1:8766/previz.html
-python3 -m amanda.main --scripted      # in another terminal
+python3 -m amanda.main --scripted      # typed, in another terminal
+python3 -m amanda.main --voice         # or speak to it
 ```
 
 The voice defaults to the best engine installed on the machine — `espeak-ng` or
@@ -382,6 +384,25 @@ absent: an API client that has never run against the real service is code that
 looks finished and is not. `PROVIDER_NOTES` in `audio/providers.py` says what
 such a provider has to get right — chiefly that it must emit the first chunk
 before the last, or it has the interface without the behaviour.
+
+## The conversation loop
+
+`runtime/state_machine.py` owns the states and their animation envelopes;
+`runtime/input.py` owns where turns come from. Typed and spoken input differ in
+exactly two places — what produces a turn, and what signals an interruption —
+so Phase 2 added a microphone rather than a second turn loop.
+
+The two disagree about what interruption *means*, and the interface says so.
+Typed: the interrupting line **is** the next turn, complete the moment it
+arrives. Spoken: barge-in fires part-way through a sentence, long before the
+endpointer knows where it ends, so the cancel happens first and the utterance
+arrives later on its own. Hence `wait_for_barge_in` is a bare signal and
+`next_turn` is the only thing that produces text.
+
+Typing *ahead* of the avatar is not interrupting it, and typed input has to
+check the clock to tell the difference. Voice input gets it free: the barge-in
+detector is only fed while armed, so nothing said before the avatar started
+counts against it.
 
 ## Hearing
 

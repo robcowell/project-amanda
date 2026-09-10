@@ -91,6 +91,13 @@ Each of these cost something to learn.
   barge-in, which needs the microphone live while the avatar speaks. See
   `docs/jarvis-overlap.md`.
 
+- **Warm before opening the microphone.** A capture stream running with
+  nothing subscribed discards what it hears, so loading a model first would
+  leave a cold start deaf for as long as the load took, without saying so.
+- **Filter noise on voiced audio, not buffer length.** An utterance always
+  carries its pre-roll and the silence that ended it, so a 0.4s cough arrives
+  as a 1.3s buffer. `Utterance.voiced_ms` is the number to threshold.
+
 ## Measured, not assumed
 
 Re-measure rather than trusting these; they are dated, single-sample, and this
