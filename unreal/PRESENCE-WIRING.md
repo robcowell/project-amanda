@@ -88,8 +88,11 @@ reach the component and stop there. `FaceState.Preset` and `.Intensity` are
 published and nothing consumes them, so the face has presence but no
 *expression*.
 
-**Breath.** Published, unused. It belongs on the body — chest and shoulders in
-`ABP_Body_PostProcess` — not the face.
+**Breath, as far as the head shows it.** The scheduler's own description is
+"chest and shoulders, plus a trace of it in the head". The chest and shoulders
+are out of scope — this is head and face cinematography — so what is wanted here
+is only that trace: the small vertical settle and release in the neck that says
+someone is breathing. `FaceState.Breath` is published and nothing reads it yet.
 
 **Head rotation.** `PresenceHeadRotation` is computed and exposed but not
 applied; the head needs either the anim graph's `ARKit_HeadRotation` or a bone

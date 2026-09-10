@@ -79,6 +79,24 @@ D:\unreal\UE_5.8\Engine\Binaries\Win64\UnrealEditor-Cmd.exe `
 `unreal/AmandaBridge`, so there is one copy of the plugin and a fix from either
 path is the same fix.
 
+## Scope: head and face only
+
+**This is head and face cinematography.** The frame is a portrait — head,
+neck and shoulders — and everything is judged at that crop. Body animation,
+locomotion, gesture and posture are **out of scope**, not deferred.
+
+What that rules out, so it does not get built by accident:
+
+- chest and shoulder breathing, and `ABP_Body_PostProcess` work generally;
+- gesture, including protocol v1's `gesture.trigger` — it stays on the wire for
+  a later product, and the renderer is right to ignore it;
+- the build plan's phase 6, "upper-body performance".
+
+What it does *not* rule out is the head's share of those things. Breath still
+matters as the small settle and release it puts in the neck; posture still
+matters as the way the head sits. The test is whether it shows in a portrait
+crop, not whether it involves a bone below the collar.
+
 ## The risk that gated everything — closed 2026-09-10
 
 MetaHuman's real-time audio solver is a **Live Link source that reads an audio
