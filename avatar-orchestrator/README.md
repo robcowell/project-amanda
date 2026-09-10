@@ -392,6 +392,52 @@ looks finished and is not. `PROVIDER_NOTES` in `audio/providers.py` says what
 such a provider has to get right — chiefly that it must emit the first chunk
 before the last, or it has the interface without the behaviour.
 
+### Sample rates, and the conversion on the Windows side
+
+Every Piper voice in `voices/` emits **22050 Hz**, `cori-high` included — it is a
+property of the models, not of the quality tier. VB-CABLE presents its endpoint
+at **48000 Hz, 2 channel, float**. So a resample happens on the way to the face
+solver no matter what is configured; the only question is whose resampler runs,
+and today it is Windows' shared-mode mixer.
+
+Measured here on 4.16s of real Piper speech, resampling 22050 → 48000 (a ratio
+of 320/147, so genuinely a filter rather than an interpolation):
+
+| | imaging above 11.1 kHz | round-trip SNR | cost |
+|---|---|---|---|
+| polyphase (`resample_poly`) | −49.2 dB | 44.7 dB | 9.09 ms |
+| linear interpolation | −34.7 dB | 30.0 dB | 2.42 ms |
+| nearest sample | −24.2 dB | 18.6 dB | 1.14 ms |
+
+Imaging is energy above 11.1 kHz, which the 22050 Hz source cannot contain — so
+all of it is the resampler's own invention.
+
+**The conclusion is to leave it alone**, for two reasons rather than one. A good
+resample puts its artefacts 49 dB down, which is inaudible and far below
+anything a face solver would react to, and Windows' shared-mode SRC has been a
+proper polyphase implementation for years — so the ceiling on what we could gain
+is the gap between good and good. And audio reaches the sink in *chunks*, so
+doing it here would need a **stateful** resampler carrying filter state across
+chunk boundaries; get that wrong and there is a click at every boundary, which
+is much worse than the thing being fixed.
+
+What would change the answer: a face that articulates visibly worse from the
+cable than from a WAV file played into it by something else. That is one A/B on
+the Windows box, and it is the measurement to take before writing any DSP here.
+
+### `--rate` declares, it cannot request
+
+Because nothing resamples, `--rate` tells the pipeline what the engine emits.
+It cannot ask an engine for a different rate. For Piper the rate is read from
+the model file, so the flag is only needed if that file is missing or wrong;
+for the stand-in tone engine, which generates its own samples, it really is a
+request and is honoured.
+
+Declaring a rate Piper does not emit now fails at startup with that sentence.
+It used to be accepted, and the run would announce the wrong rate and then fail
+on the first phrase of the first turn — by which point somebody had already
+spoken to it.
+
 ## The conversation loop
 
 `runtime/state_machine.py` owns the states and their animation envelopes;

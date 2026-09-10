@@ -27,6 +27,7 @@ from amanda.audio.microphone import Microphone
 from amanda.audio.sink import DeviceSink, NullSink
 from amanda.audio.speech import SpeechSession
 from amanda.audio.stt import build as build_recognizer
+from amanda.audio.tts import SynthesisError
 from amanda.audio.wake import build as build_wake
 from amanda.avatar.protocol import CancelReason, SessionEnded, SessionStarted, UserDetected
 from amanda.avatar.websocket import DEFAULT_HOST, DEFAULT_PORT, AvatarBridge
@@ -443,7 +444,13 @@ def main() -> int:
     parser.add_argument(
         "--no-telemetry", action="store_true", help="do not record turns to disk"
     )
-    parser.add_argument("--rate", type=int, help="override the engine's native sample rate")
+    parser.add_argument(
+        "--rate",
+        type=int,
+        metavar="HZ",
+        help="declare what the engine emits, when it is not what the registry expects; "
+        "this cannot ask an engine for a different rate, because nothing here resamples",
+    )
     parser.add_argument("--fade", type=int, default=80)
     parser.add_argument(
         "--settle", type=int, default=700, metavar="MS",
@@ -458,8 +465,14 @@ def main() -> int:
     if loaded := load_env():
         print(f"loaded {', '.join(loaded)} from .env")
 
-    with contextlib.suppress(KeyboardInterrupt, EOFError):
-        return asyncio.run(Session(args).run())
+    try:
+        with contextlib.suppress(KeyboardInterrupt, EOFError):
+            return asyncio.run(Session(args).run())
+    except SynthesisError as exc:
+        # A voice that cannot be built is a startup problem with a fix in it,
+        # not a crash. Say the sentence, not the traceback.
+        print(f"{exc}")
+        return 2
     return 0
 
 

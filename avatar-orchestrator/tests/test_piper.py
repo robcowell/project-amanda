@@ -158,10 +158,37 @@ def test_the_sample_rate_comes_from_the_model_not_a_constant():
         assert voice.sample_rate == declared
 
 
-def test_an_explicit_rate_still_overrides_the_model():
+def test_declaring_a_rate_the_model_does_not_emit_fails_at_build_time():
+    """`sample_rate` declares what the engine produces; it cannot ask for a
+    rate, because nothing in the pipeline resamples.
+
+    This used to be accepted, and the run would then announce the wrong rate and
+    fail on the first phrase of the first turn -- by which point somebody had
+    already spoken to it.
+    """
+    import pytest
+
+    from amanda.audio.engines import build
+    from amanda.audio.tts import SynthesisError
+
+    with pytest.raises(SynthesisError, match="cannot change that"):
+        build("piper", sample_rate=48_000)
+
+
+def test_declaring_the_rate_the_model_does_emit_is_accepted():
+    """The flag's real use: a model whose rate the registry guesses wrongly."""
     from amanda.audio.engines import build
 
-    _, voice = build("piper", sample_rate=48_000)
+    _, voice = build("piper", sample_rate=22_050)
+    assert voice.sample_rate == 22_050
+
+
+def test_an_engine_that_synthesises_at_any_rate_still_honours_the_flag():
+    """The stand-in generates its samples, so for it the rate really is a
+    request. Refusing it everywhere would take that away."""
+    from amanda.audio.engines import build
+
+    _, voice = build("tone", sample_rate=48_000)
     assert voice.sample_rate == 48_000
 
 

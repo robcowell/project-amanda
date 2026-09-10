@@ -191,9 +191,12 @@ def build(
 ) -> tuple[SpeechSynthesizer, VoiceSettings]:
     """A synthesizer and a voice whose sample rate the engine will agree with.
 
-    The rate defaults to what the engine emits rather than to a house value,
-    because a mismatch is refused rather than resampled -- making the default
-    correct is cheaper than making the error message good.
+    `sample_rate` *declares* what the engine emits; it cannot request a rate.
+    Nothing here resamples, so the only thing the pipeline can do with the
+    number is agree with it or refuse. The default is read from the engine --
+    from the model file, for Piper -- which is why the argument is almost never
+    needed, and why passing the wrong one is checked here rather than being
+    discovered on the first phrase.
     """
     # Configured pace, unless the caller asked for a specific one.
     pace = pace if pace is not None else (default_pace() or 1.0)
@@ -223,11 +226,21 @@ def build(
         from amanda.audio.piper_provider import PiperSynthesizer, model_sample_rate
 
         model = Path(voice.voice_id or "")
-        if sample_rate is None and (native := model_sample_rate(model)) is not None:
+        native = model_sample_rate(model)
+        if native is not None and sample_rate is None:
             # The model knows its own rate; the registry's default is only a
             # guess that happens to be right for medium and high voices.
             voice = VoiceSettings(
                 voice_id=voice.voice_id, sample_rate=native, pace=voice.pace
+            )
+        elif native is not None and sample_rate != native:
+            # Caught here rather than mid-utterance. Without this the run starts,
+            # announces the wrong rate, and fails on the first phrase of the
+            # first turn -- by which point somebody has already spoken to it.
+            raise SynthesisError(
+                f"{model.name} emits {native} Hz; --rate {sample_rate} cannot change "
+                f"that, because nothing in the pipeline resamples. Drop --rate and "
+                f"the model's own rate is used."
             )
         return PiperSynthesizer(model=model, **overrides), voice
 

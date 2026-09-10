@@ -25,7 +25,7 @@ with canned replies through the real segmenter, TTS and bridge.
 
 ## Where things stand (2026-09-10)
 
-Built and tested, 427 tests: protocol v1, the WebSocket bridge, the presence
+Built and tested, 429 tests: protocol v1, the WebSocket bridge, the presence
 layer with a previsualiser, the streaming Claude client, TTS with Piper, the
 microphone loop (VAD, Whisper, barge-in, wake word), the performance director
 and per-turn telemetry. Typed or spoken input reaches a spoken, animated,
@@ -234,6 +234,17 @@ machine.
   to assume. The first call of a run costs ~2.0s because a new JSON schema is
   compiled once and cached 24h — which is what `PerformanceDirector.warm()` is
   for.
+- **The 22050 -> 48000 conversion into VB-CABLE is not worth taking over.**
+  Every Piper voice is 22050 (including `cori-high`) and the cable is 48000, so
+  a resample happens regardless. A good polyphase one puts its artefacts 49 dB
+  down and costs 9ms per 4s phrase; Windows' shared-mode SRC is already a
+  polyphase implementation, so the gain is bounded by the gap between good and
+  good. Doing it here would need a *stateful* resampler across chunk
+  boundaries, and getting that wrong clicks on every chunk. Re-open only if a
+  face articulates visibly worse from the cable than from a WAV played into it.
+- **`--rate` declares what an engine emits; it cannot request a rate.** Nothing
+  resamples, so the pipeline can only agree or refuse. Piper reads its rate from
+  the model file and the flag is redundant there.
 - **Structured output is the fast path, not a tax.** Same classifier prompt:
   ~1.3s and 17 output tokens with a schema, ~1.6s and 71 without. Told in prose
   to answer in one line it still explained itself, at 92 tokens. Constraining
