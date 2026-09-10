@@ -27,8 +27,9 @@ with canned replies through the real segmenter, TTS and bridge.
 
 Built and tested, 427 tests: protocol v1, the WebSocket bridge, the presence
 layer with a previsualiser, the streaming Claude client, TTS with Piper, the
-microphone loop (VAD, Whisper, barge-in, wake word), and the performance
-director. Typed or spoken input reaches a spoken, animated, classified reply.
+microphone loop (VAD, Whisper, barge-in, wake word), the performance director
+and per-turn telemetry. Typed or spoken input reaches a spoken, animated,
+classified reply, and every turn is recorded to `turns.jsonl`.
 
 `unreal/AmandaBridge/` **now compiles**, against UE 5.8.2, as part of the
 `unreal/Amanda` project. Its four conformance suites pass in the editor's

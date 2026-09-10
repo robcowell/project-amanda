@@ -31,7 +31,7 @@ speech events are cues about audio arriving elsewhere.
 Claude answers aloud, with the face driven by the same protocol Unreal will
 receive — but that face is currently a schematic one in a browser.
 
-Built and tested, 400 tests:
+Built and tested, 427 tests:
 
 - protocol v1, and the WebSocket bridge that carries it;
 - the presence layer — blink, gaze, breathing, drift — with a previsualiser
@@ -43,7 +43,9 @@ Built and tested, 400 tests:
   Whisper, barge-in and a wake word;
 - the conversation state machine, and its animation envelope per state;
 - the performance director — a second, cheap call classifying how each reply
-  should be delivered — and the smoothing that keeps it restrained.
+  should be delivered — and the smoothing that keeps it restrained;
+- per-turn telemetry: one JSON object per turn, appended to a gitignored file,
+  with transcripts off by default.
 
 On the renderer side, against UE 5.8.2:
 
