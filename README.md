@@ -27,19 +27,25 @@ speech events are cues about audio arriving elsewhere.
 
 ## Where things stand
 
+Phase 1 is complete end to end: type a message and hear Claude answer through
+the avatar, with the face driven by the same protocol Unreal will receive.
+
 Built and tested:
 
 - protocol v1, and the WebSocket bridge that carries it;
 - the presence layer — blink, gaze, breathing, drift — with a previsualiser
   for tuning it;
+- the Claude client: streaming turns, phrase segmentation, cancellation;
+- speech synthesis behind a provider-neutral interface, with Piper as the
+  default engine;
 - performance smoothing: transitions, hysteresis and decay.
 
 Written but never compiled (no Unreal on the development machine):
 
 - the C++ bridge subsystem and its conformance tests.
 
-Still stubs: the Claude client, TTS, STT, the microphone loop, and the
-performance director's classifier call.
+Still stubs: the microphone loop — capture, voice activity detection and STT —
+the performance director's classifier call, and the conversation state machine.
 
 ## Getting started
 
