@@ -80,6 +80,14 @@ class SpeechSession:
     _cancel_reason: CancelReason = field(default=CancelReason.BARGE_IN, init=False)
     _error: BaseException | None = field(default=None, init=False)
 
+    #: Deepest the phrase queue ever got (build plan 24).
+    #:
+    #: Reads as a headroom measure and it is: phrases are synthesised one at a
+    #: time, so a queue that stays at one means synthesis is keeping pace with
+    #: generation, and a queue that climbs means it is not. If this ever sits
+    #: high, the engine is the bottleneck rather than the model.
+    peak_queue_depth: int = field(default=0, init=False)
+
     # ----------------------------------------------------------------- #
 
     async def start(self) -> None:
@@ -104,6 +112,7 @@ class SpeechSession:
             )
         self._texts.append(phrase)
         self._phrases.put_nowait(phrase)
+        self.peak_queue_depth = max(self.peak_queue_depth, self._phrases.qsize())
 
     def close_input(self) -> None:
         """No more phrases are coming. Playback continues until the queue drains."""
@@ -157,6 +166,11 @@ class SpeechSession:
         speech.cancelled for something the renderer never heard of.
         """
         return self._prepared
+
+    @property
+    def phrases(self) -> int:
+        """How many phrases this utterance was split into."""
+        return len(self._texts)
 
     @property
     def result(self) -> SpokenUtterance:

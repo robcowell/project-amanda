@@ -18,7 +18,7 @@ from enum import StrEnum
 
 
 class Stage(StrEnum):
-    """The seven marks. Names match the build plan so the two can be read together."""
+    """The marks. T0-T6 match the build plan so the two can be read together."""
 
     USER_SPEECH_ENDED = "T0"
     TRANSCRIPT_FINAL = "T1"
@@ -28,8 +28,18 @@ class Stage(StrEnum):
     FIRST_AUDIO = "T5"
     SPEECH_STARTED = "T6"
 
+    #: Ours, not the plan's. The last token of the reply, which normally lands
+    #: well *after* T6 -- the avatar starts speaking while Claude is still
+    #: writing. So it measures generation, not latency, which is why it is kept
+    #: out of SPANS below.
+    LAST_TOKEN = "T7"
 
-#: Stage pairs worth reporting, and what a slow one usually means.
+
+#: The latency budget: consecutive stages on the path from T0 to T6.
+#:
+#: Only spans a listener is *waiting* through belong here. A duration that runs
+#: alongside speech is not latency and would make the printed budget stop
+#: adding up -- see `claude_stream_ms` in `as_dict`.
 SPANS: dict[str, tuple[Stage, Stage]] = {
     "stt_ms": (Stage.USER_SPEECH_ENDED, Stage.TRANSCRIPT_FINAL),
     "dispatch_ms": (Stage.TRANSCRIPT_FINAL, Stage.REQUEST_SENT),
@@ -53,11 +63,35 @@ class TurnMetrics:
 
     interrupted: bool = False
     refused: bool = False
+    #: Set when the turn raised. The most interesting line in the log, and the
+    #: one the console print scrolls away fastest.
+    failed: str | None = None
+    #: What the performance director decided, once it has decided it.
     preset: str | None = None
+    intensity: float | None = None
     model: str | None = None
     input_tokens: int | None = None
     output_tokens: int | None = None
     cached_tokens: int | None = None
+
+    # The rest of build plan 24's list, as far as the orchestrator can honestly
+    # answer it. FPS and GPU frame time are the renderer's to report and are
+    # deliberately absent here rather than guessed at.
+
+    #: How long the user spoke, and how long the avatar did.
+    heard_ms: int | None = None
+    spoken_ms: int | None = None
+    #: Phrases synthesised, and the deepest the queue got waiting for them.
+    phrases: int | None = None
+    peak_queue_depth: int | None = None
+    #: Times the output device ran dry mid-utterance.
+    underruns: int | None = None
+    #: Whether a renderer was attached at all, and how many messages it was too
+    #: slow to take. Protocol v1 has no ack, so there is no round trip to
+    #: measure and no honest "websocket latency" to report -- backpressure is
+    #: the signal that actually exists.
+    renderer_connected: bool | None = None
+    renderer_backpressure_drops: int | None = None
 
     def mark(self, stage: Stage) -> float:
         """Record a stage, keeping the first timestamp if it fires twice.
@@ -82,6 +116,11 @@ class TurnMetrics:
         return round((self.marks[end] - self.marks[start]) * 1000)
 
     @property
+    def stream_ms(self) -> int | None:
+        """How long Claude spent writing the reply, T2 to T7."""
+        return self.elapsed_ms(Stage.REQUEST_SENT, Stage.LAST_TOKEN)
+
+    @property
     def response_latency_ms(self) -> int | None:
         """T6 - T0. The one number that describes whether this feels broken."""
         return self.elapsed_ms(Stage.USER_SPEECH_ENDED, Stage.SPEECH_STARTED)
@@ -104,11 +143,23 @@ class TurnMetrics:
         if self.refused:
             record["refused"] = True
         for name, value in (
+            ("failed", self.failed),
+            # Generation duration, not latency, so it sits outside SPANS -- but
+            # it is still a `_ms` the plan asks for.
+            ("claude_stream_ms", self.stream_ms),
             ("performance", self.preset),
+            ("intensity", self.intensity),
             ("model", self.model),
             ("input_tokens", self.input_tokens),
             ("output_tokens", self.output_tokens),
             ("cached_tokens", self.cached_tokens),
+            ("heard_ms", self.heard_ms),
+            ("spoken_ms", self.spoken_ms),
+            ("phrases", self.phrases),
+            ("peak_queue_depth", self.peak_queue_depth),
+            ("underruns", self.underruns),
+            ("renderer_connected", self.renderer_connected),
+            ("renderer_backpressure_drops", self.renderer_backpressure_drops),
         ):
             if value is not None:
                 record[name] = value

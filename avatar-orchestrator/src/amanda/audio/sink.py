@@ -52,6 +52,16 @@ class AudioSink(Protocol):
 
     async def close(self) -> None: ...
 
+    @property
+    def underruns(self) -> int:
+        """Times the device ran out of audio to play (build plan 24).
+
+        A gap in the middle of a sentence is one of the few faults a listener
+        notices immediately and a level meter cannot see, so it is worth a
+        counter. Sinks that cannot underrun report zero.
+        """
+        ...
+
 
 def _ramp_to_silence(tail: bytes, fade_ms: int, sample_rate: int) -> bytes:
     """A fade that starts at the amplitude the audio is currently at.
@@ -90,6 +100,9 @@ class NullSink:
     "finishes" the instant it is synthesised and there is nothing left to
     interrupt -- which quietly makes any barge-in test or demo meaningless.
     """
+
+    #: Memory does not run dry. Present so telemetry needs no special case.
+    underruns: int = 0
 
     realtime: bool = False
     sample_rate: int = 0
@@ -188,6 +201,11 @@ class DeviceSink:
     _tail: bytes = field(default=b"", repr=False)
     _sample_rate: int = 0
     _stopped: bool = False
+    _underruns: int = 0
+
+    @property
+    def underruns(self) -> int:
+        return self._underruns
 
     async def open(self, sample_rate: int) -> None:
         import sounddevice
@@ -212,7 +230,12 @@ class DeviceSink:
         if self._stream is None or self._stopped or not pcm:
             return
         self._tail = pcm[-SAMPLE_WIDTH:] or self._tail
-        await asyncio.to_thread(self._stream.write, pcm)
+        # The blocking write returns whether the device ran dry waiting for it.
+        # It is the only place PortAudio reports that in this mode, so the
+        # return value is the whole of the underrun signal -- discarding it, as
+        # this did, meant a stutter mid-sentence left no trace anywhere.
+        if await asyncio.to_thread(self._stream.write, pcm):
+            self._underruns += 1
 
     async def drain(self) -> None:
         if self._stream is not None and not self._stopped:
@@ -270,6 +293,11 @@ class CommandSink:
     """
 
     argv: Sequence[str] = RAW_PLAYERS["paplay"]
+
+    #: The player owns the device, so underruns happen out of our sight. Zero
+    #: here means "not observable", not "none happened" -- another reason
+    #: DeviceSink is the one to use when timing matters.
+    underruns: int = 0
 
     _process: Any = field(default=None, repr=False)
     _tail: bytes = field(default=b"", repr=False)

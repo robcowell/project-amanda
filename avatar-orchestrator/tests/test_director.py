@@ -28,6 +28,7 @@ from amanda.performance.director import (
     ScriptedDirector,
     build,
 )
+from amanda.runtime.metrics import TurnMetrics
 
 # --------------------------------------------------------------------------- #
 # A stand-in for the SDK
@@ -464,6 +465,7 @@ def test_the_reply_threshold_is_longer_than_the_first_phrase():
 class FakeStream:
     def __init__(self, text: str) -> None:
         self.text = text
+        self.metrics = TurnMetrics()
 
 
 def gate(reply: str, speaking: bool = True, final: bool = False):
@@ -483,7 +485,7 @@ def gate(reply: str, speaking: bool = True, final: bool = False):
 
     fired: list[str] = []
 
-    async def direct(user_text: str, text: str) -> None:
+    async def direct(user_text: str, text: str, metrics=None) -> None:
         fired.append(text)
 
     stub = SimpleNamespace(direction=None, direct=direct)
@@ -529,7 +531,7 @@ async def test_it_fires_only_once_per_turn():
     started.set()
     fired: list[str] = []
 
-    async def direct(user_text: str, text: str) -> None:
+    async def direct(user_text: str, text: str, metrics=None) -> None:
         fired.append(text)
 
     stub = SimpleNamespace(direction=None, direct=direct)

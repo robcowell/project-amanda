@@ -188,6 +188,31 @@ def stt_settings() -> dict[str, Any]:
     return dict(settings) if isinstance(settings, dict) else {}
 
 
+def telemetry_settings() -> dict[str, Any]:
+    """The `telemetry:` block from config/avatar.yaml."""
+    settings = load("avatar.yaml").get("telemetry")
+    return dict(settings) if isinstance(settings, dict) else {}
+
+
+def privacy_settings() -> dict[str, Any]:
+    """The `privacy:` block from config/avatar.yaml (build plan 25).
+
+    `retain_microphone_audio` is honoured by construction -- nothing in the
+    orchestrator writes captured audio anywhere -- so setting it true does not
+    switch a feature on, and is warned about rather than silently ignored. A
+    config key that looks like it does something is worse than one that is
+    absent.
+    """
+    settings = load("avatar.yaml").get("privacy")
+    settings = dict(settings) if isinstance(settings, dict) else {}
+    if settings.get("retain_microphone_audio"):
+        log.warning(
+            "privacy.retain_microphone_audio is set, but nothing here retains "
+            "audio; captured frames are never written to disk"
+        )
+    return settings
+
+
 def performance_settings() -> dict[str, Any]:
     """The `performance:` block from config/avatar.yaml.
 

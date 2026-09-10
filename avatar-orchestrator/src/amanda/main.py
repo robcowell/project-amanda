@@ -37,8 +37,9 @@ from amanda.config import load_env
 from amanda.performance.director import MIN_REPLY_CHARS, Director
 from amanda.performance.director import build as build_director
 from amanda.runtime.input import ConversationInput, TypedInput, UserTurn, VoiceInput
-from amanda.runtime.metrics import Stage
+from amanda.runtime.metrics import SPANS, Stage
 from amanda.runtime.state_machine import ConversationState, ConversationStateMachine
+from amanda.runtime.telemetry import TurnLog
 
 log = logging.getLogger("amanda")
 
@@ -90,6 +91,9 @@ class Session:
         self.director: Director = self._build_director()
         self.input: ConversationInput = self._build_input()
         self.session_id = f"s_{uuid.uuid4().hex[:8]}"
+        self.telemetry = TurnLog.from_config(
+            {"enabled": False} if args.no_telemetry else None
+        )
         #: The in-flight classification, if any. One turn at a time, so one task.
         self.direction: asyncio.Task[None] | None = None
 
@@ -163,6 +167,10 @@ class Session:
                 print("type a message; type again while it speaks to interrupt")
             print("ctrl-d to quit\n")
 
+            self.telemetry.open()
+            if self.telemetry.enabled:
+                print(f"recording turns to {self.telemetry.path}")
+
             self.bridge.send(SessionStarted(session_id=self.session_id))
             self.bridge.send(UserDetected(present=True))
             self.enter(ConversationState.ATTENTIVE)
@@ -171,6 +179,7 @@ class Session:
                 await self.loop()
             finally:
                 await self.input.stop()
+                self.telemetry.close()
                 self.bridge.send(SessionEnded(session_id=self.session_id, reason="quit"))
                 await asyncio.sleep(0.05)
         return 0
@@ -229,6 +238,7 @@ class Session:
 
         if interrupt in done:
             await self.interrupted(stream, segmenter, session, speaking, metrics)
+            self.finish(user, stream, session, metrics)
             return
 
         interrupt.cancel()
@@ -246,6 +256,8 @@ class Session:
             speaking.result()
         except Exception as exc:  # noqa: BLE001 - reported, never fatal
             await self.report_failure(session, exc)
+            metrics.failed = f"{type(exc).__name__}: {exc}"
+            self.finish(user, stream, session, metrics)
             return
 
         self.conversation.assistant(stream.text)
@@ -256,8 +268,29 @@ class Session:
         # breath overrides the settle transition before any of it is drawn.
         self.enter(ConversationState.SETTLING)
         self.report(metrics)
+        self.finish(user, stream, session, metrics)
         await asyncio.sleep(self.args.settle / 1000)
         self.enter(ConversationState.ATTENTIVE)
+
+    def finish(self, user: UserTurn, stream, session, metrics) -> None:
+        """Complete the turn record and write it.
+
+        Build plan 24 asks for more than the latency budget, and the pieces are
+        scattered across the objects that own them -- the sink knows about
+        underruns, the speech session about queue depth, the bridge about
+        whether anyone was listening. Gathered here, once, so all three exit
+        paths from a turn record the same thing.
+        """
+        spoken = session.result
+        metrics.heard_ms = user.audio_ms or None
+        metrics.spoken_ms = spoken.spoken_ms
+        metrics.phrases = session.phrases or None
+        metrics.peak_queue_depth = session.peak_queue_depth
+        metrics.underruns = getattr(session.sink, "underruns", None)
+        metrics.renderer_connected = self.bridge.client_count > 0
+        metrics.renderer_backpressure_drops = self.bridge.stats.clients_dropped_for_backpressure
+
+        self.telemetry.record(metrics, user_text=user.text, reply_text=spoken.text)
 
     async def interrupted(self, stream, segmenter, session, speaking, metrics) -> None:
         """Barge-in. Ordering matters and is the build plan's (§13).
@@ -327,9 +360,11 @@ class Session:
             return
         if not final and len(stream.text) < MIN_REPLY_CHARS:
             return
-        self.direction = asyncio.create_task(self.direct(user.text, stream.text), name="director")
+        self.direction = asyncio.create_task(
+            self.direct(user.text, stream.text, stream.metrics), name="director"
+        )
 
-    async def direct(self, user_text: str, reply: str) -> None:
+    async def direct(self, user_text: str, reply: str, metrics=None) -> None:
         """Classify the delivery while the avatar is already speaking.
 
         Sends straight to the bridge rather than returning a value, because the
@@ -347,6 +382,9 @@ class Session:
         if update is None:
             return
         print(f"  [{update.preset.value} {update.intensity:.2f}]")
+        if metrics is not None:
+            metrics.preset = update.preset.value
+            metrics.intensity = round(update.intensity, 3)
         self.bridge.send(update)
 
     async def stop_direction(self) -> None:
@@ -366,8 +404,15 @@ class Session:
         self.enter(ConversationState.ATTENTIVE)
 
     def report(self, metrics) -> None:
+        """Print the latency budget: the stages the user waited through.
+
+        Named explicitly rather than filtered on an `_ms` suffix, because the
+        telemetry record also carries durations that run *alongside* speech --
+        printing those here would make the budget look like it did not add up.
+        """
         record = metrics.as_dict()
-        parts = [f"{key}={value}" for key, value in record.items() if key.endswith("_ms")]
+        names = [*SPANS, "total_response_ms"]
+        parts = [f"{name}={record[name]}" for name in names if name in record]
         print(f"  [{'  '.join(parts)}]\n")
 
 
@@ -395,6 +440,9 @@ def main() -> int:
     parser.add_argument("--voice-id", help="engine-specific voice id or model path")
     parser.add_argument("--device", help="output device, by index or name fragment")
     parser.add_argument("--no-audio", action="store_true", help="run silently")
+    parser.add_argument(
+        "--no-telemetry", action="store_true", help="do not record turns to disk"
+    )
     parser.add_argument("--rate", type=int, help="override the engine's native sample rate")
     parser.add_argument("--fade", type=int, default=80)
     parser.add_argument(

@@ -9,3 +9,7 @@ venv/
 logs/
 recordings/
 voices/
+
+# Per-turn telemetry. A record of conversations, even without transcripts.
+turns.jsonl
+turns*.jsonl

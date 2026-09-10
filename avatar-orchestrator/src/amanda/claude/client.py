@@ -160,6 +160,7 @@ class StreamedTurn:
                 async for text in stream.text_stream:
                     self.metrics.mark(Stage.FIRST_TOKEN)
                     self._queue.put_nowait(text)
+                self.metrics.mark(Stage.LAST_TOKEN)
                 self._finish(await stream.get_final_message())
         except asyncio.CancelledError:
             # Swallowed deliberately: the consumer's loop should end quietly on a

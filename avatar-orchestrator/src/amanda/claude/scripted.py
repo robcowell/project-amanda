@@ -83,6 +83,7 @@ class ScriptedTurn:
                 self.metrics.mark(Stage.FIRST_TOKEN)
                 self._queue.put_nowait(word if index == 0 else f" {word}")
                 await asyncio.sleep(self._word_delay)
+            self.metrics.mark(Stage.LAST_TOKEN)
             self.stop_reason = "end_turn"
             self.metrics.model = "scripted"
         except asyncio.CancelledError:

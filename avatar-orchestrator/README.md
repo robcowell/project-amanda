@@ -28,7 +28,7 @@ performance director. The orchestrator half is built; the renderer half is not.
 | `performance/{schema,smoothing}.py` | Implemented (phase 4) |
 | `performance/director.py` | Implemented, 45 tests (phase 4) |
 | `claude/` | Implemented, 47 tests (epic 2) |
-| `runtime/metrics.py` | Implemented (T0–T6) |
+| `runtime/{metrics,telemetry}.py` | Implemented, 27 tests (T0–T7, build plan 24) |
 | `audio/{tts,providers,sink,speech}.py` | Implemented, 42 tests (epic 3) |
 | `audio/{microphone,vad}.py` | Implemented, 32 tests (phase 2, epic 5) |
 | `audio/{stt,whisper_provider}.py` | Implemented, 17 tests |
@@ -44,6 +44,7 @@ src/amanda/
   presence/     blink, gaze, breath and drift -- reference logic for the renderer
   avatar/       protocol v1 and the local WebSocket bridge
   runtime/      conversation state machine, where turns come from, telemetry
+turns.jsonl     one JSON object per turn, gitignored
 config/         avatar.yaml, voices.yaml -- no secrets
 tools/          previz, sample session emitter and server, mock renderer
 tests/
@@ -540,6 +541,59 @@ roughly 750 ms, at the price of re-transcribing when more speech arrives.
 "You" with `no_speech_prob` 0.768, against 0.000 for real speech. Segments above
 0.6 are dropped, because otherwise a door closing that got past the endpointer
 becomes a user turn and Claude answers it.
+
+## Turn telemetry
+
+Every turn appends one JSON object to `turns.jsonl` (§24). `tail -f` it while
+you talk to the avatar — the point is the shape *across* turns, because one slow
+reply tells you nothing and thirty tell you which stage moved.
+
+```json
+{"at": 1789035541.457, "stt_ms": 0, "claude_first_token_ms": 1058,
+ "phrase_ms": 482, "tts_first_audio_ms": 379, "total_response_ms": 1919,
+ "interrupted": false, "claude_stream_ms": 1655, "performance": "neutral_attentive",
+ "intensity": 0.1, "model": "claude-sonnet-5", "input_tokens": 363,
+ "output_tokens": 64, "spoken_ms": 8487, "phrases": 2, "peak_queue_depth": 1,
+ "underruns": 0, "renderer_connected": false, "renderer_backpressure_drops": 0}
+```
+
+**Stages that never happened are omitted, not zeroed.** A typed turn has no T0,
+and reporting that as `0ms` would make the numbers lie. A counter that is
+genuinely zero — `underruns` — is kept, because zero underruns is a measurement
+and a missing one is not.
+
+**Generation time is recorded but stays out of the latency budget.** Claude keeps
+writing while the avatar is already speaking, so `claude_stream_ms` is not
+something the listener waits through. Counting it in the printed budget would
+make the stages stop adding up, which is why the console line is built from
+`SPANS` by name rather than from anything ending in `_ms`.
+
+### The rest of §24's list, honestly
+
+The plan also asks for FPS, GPU frame time, audio underruns, WebSocket latency,
+TTS queue depth, Claude stream duration and utterance length. What the
+orchestrator can actually answer:
+
+| plan asks for | what is recorded |
+|---|---|
+| FPS, GPU frame time | **nothing** — the renderer's to report, and absent rather than guessed at |
+| audio underruns | `underruns`, from PortAudio's blocking write, which returns the flag on every call |
+| WebSocket latency | **no such number.** Protocol v1 has no ack, so there is no round trip. `renderer_connected` and `renderer_backpressure_drops` are the signals that exist |
+| TTS queue depth | `peak_queue_depth` — phrases are synthesised one at a time, so a queue that climbs means the engine, not the model, is the bottleneck |
+| Claude stream duration | `claude_stream_ms` |
+| utterance length | `heard_ms` (the user) and `spoken_ms` (the avatar, after a barge-in what was *played*) |
+
+### It never writes what was said unless asked
+
+`privacy.log_transcripts` is false by default (§25), and this is the only thing
+in the orchestrator that could put a conversation on disk. The turn loop passes
+the text in either way and `TurnLog` drops it, so no caller has to remember the
+rule and every caller gets it right.
+
+`turns.jsonl` is gitignored regardless: it is a record of conversations even
+without the words. `--no-telemetry` turns it off for a run, and any write
+failure disables the log for the rest of the session and says so once — a turn
+that worked must never be reported as failed because a disk filled up.
 
 ## The Unreal side
 

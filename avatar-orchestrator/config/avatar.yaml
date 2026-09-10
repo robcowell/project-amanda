@@ -131,6 +131,21 @@ speech:
   flush_timeout_ms: 600
   cancel_fade_ms: 80
 
+# One JSON object per turn, appended (build plan 24). Turns "it feels sluggish"
+# into something diagnosable: one slow reply says nothing, thirty say which
+# stage moved. `tail -f turns.jsonl` while you talk to it.
+telemetry:
+  enabled: true
+
+  # Relative paths resolve against the orchestrator directory. Gitignored --
+  # it is a record of conversations, even without the transcripts.
+  path: turns.jsonl
+
 privacy:
+  # Honoured by construction: nothing here writes captured audio anywhere.
+  # Setting it true does not switch a feature on, and is warned about.
   retain_microphone_audio: false
+
+  # Whether the turn log includes what was actually said. Off by default
+  # (build plan 25); the timings are useful without the words.
   log_transcripts: false

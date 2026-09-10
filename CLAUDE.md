@@ -25,7 +25,7 @@ with canned replies through the real segmenter, TTS and bridge.
 
 ## Where things stand (2026-09-10)
 
-Built and tested, 400 tests: protocol v1, the WebSocket bridge, the presence
+Built and tested, 427 tests: protocol v1, the WebSocket bridge, the presence
 layer with a previsualiser, the streaming Claude client, TTS with Piper, the
 microphone loop (VAD, Whisper, barge-in, wake word), and the performance
 director. Typed or spoken input reaches a spoken, animated, classified reply.
@@ -162,6 +162,19 @@ Each of these cost something to learn.
 - **The scripted director is a stand-in, not a fallback.** It cycles a fixed
   list and reads neither argument. A keyword heuristic there would look like a
   cheap classifier and be believed.
+- **Telemetry never breaks a conversation.** `TurnLog` catches every exception,
+  not a chosen list — a closed handle raises `ValueError`, not `OSError`, and
+  that bet was already lost once. The first failure disables the log for the
+  run and says so once.
+- **A stage that never happened is omitted, not zeroed.** A typed turn has no
+  T0. A counter that is genuinely zero (`underruns`) is kept, because zero
+  underruns is a measurement and a missing one is not.
+- **Generation time is not latency.** `claude_stream_ms` runs alongside speech,
+  so it is recorded but kept out of `SPANS`; the console budget is built from
+  `SPANS` by name, never by filtering for an `_ms` suffix.
+- **`privacy.log_transcripts` is the only route to a transcript on disk**, and
+  it is false by default (§25). The turn loop always passes the text and
+  `TurnLog` drops it, so no caller has to remember the rule.
 - **Whisper and Piper both load once, never per use.** Same lesson twice:
   loading costs seconds, running costs hundreds of milliseconds. `warm()` pays
   it at startup.
