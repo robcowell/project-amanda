@@ -64,11 +64,19 @@ def test_different_seeds_diverge():
 
 
 def test_blink_rate_is_humanly_plausible():
-    """Adults blink roughly 15-20 times a minute at rest."""
+    """Adults blink roughly 10-20 times a minute at rest.
+
+    The lower bound was 12 until the schedulers were slowed on 2026-09-10. What
+    changed was not the science but the face: the previsualiser draws eyelids as
+    a shape opening and closing, where 21 a minute looks unremarkable, and on a
+    rendered MetaHuman the same rate reads as nervous. Rob watched it and said
+    so; this band now spans what a person does at rest rather than what looked
+    right on a schematic.
+    """
     engine = PresenceEngine(seed=3)
     run(engine, 600)
     per_minute = len(engine.blink_times) / 10.0
-    assert 12 <= per_minute <= 22, f"{per_minute:.1f} blinks/min is not a human rate"
+    assert 9 <= per_minute <= 22, f"{per_minute:.1f} blinks/min is not a human rate"
 
 
 def test_blink_timing_is_not_metronomic():

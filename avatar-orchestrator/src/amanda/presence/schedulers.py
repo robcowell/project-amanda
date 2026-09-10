@@ -67,11 +67,16 @@ class BlinkScheduler:
     """
 
     rng: random.Random
-    interval_range: tuple[float, float] = (2.4, 6.8)
+    #: Widened from (2.4, 6.8) on 2026-09-10, after watching a real MetaHuman
+    #: rather than the previsualiser's schematic face: 21 blinks a minute looked
+    #: fine as a rectangle opening and closing, and read as nervous on a face.
+    interval_range: tuple[float, float] = (4.0, 9.0)
     close_ms: float = 62.0
     open_ms: float = 118.0
     double_blink_probability: float = 0.12
-    saccade_blink_probability: float = 0.22
+    #: Down from 0.22 at the same time. A blink on every other glance was much
+    #: of what made the rate feel high, and it is the least missed when it goes.
+    saccade_blink_probability: float = 0.10
 
     _next_at: float = 0.0
     _blink_started: float | None = None

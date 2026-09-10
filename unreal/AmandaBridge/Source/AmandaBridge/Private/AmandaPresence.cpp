@@ -372,6 +372,9 @@ void UAmandaPresenceComponent::BeginPlay()
 	// wrongly.
 	Rng.Initialize(RandomSeed != 0 ? RandomSeed : FMath::Rand());
 
+	Blink.IntervalLow = FMath::Max(0.5f, (float)BlinkIntervalSeconds.X);
+	Blink.IntervalHigh = FMath::Max(Blink.IntervalLow + 0.5f, (float)BlinkIntervalSeconds.Y);
+
 	const float Start = Now();
 	Blink.Start(Start, Rng);
 	Gaze.Start(Start, Rng);

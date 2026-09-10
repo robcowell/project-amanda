@@ -29,6 +29,15 @@ LOOK_RIGHT = ["CTRL_expressions_eyeLookRightL", "CTRL_expressions_eyeLookRightR"
 LOOK_UP = ["CTRL_expressions_eyeLookUpL", "CTRL_expressions_eyeLookUpR"]
 LOOK_DOWN = ["CTRL_expressions_eyeLookDownL", "CTRL_expressions_eyeLookDownR"]
 
+# Head turn and tilt. The rig splits each into Down/Mid/Up variants for the face
+# board's rows; Mid is the plain rotation, which is what presence wants.
+TURN_LEFT = ["CTRL_expressions_headTurnLeftM"]
+TURN_RIGHT = ["CTRL_expressions_headTurnRightM"]
+TURN_UP = ["CTRL_expressions_headTurnUpM"]
+TURN_DOWN = ["CTRL_expressions_headTurnDownM"]
+TILT_LEFT = ["CTRL_expressions_headTiltLeftM"]
+TILT_RIGHT = ["CTRL_expressions_headTiltRightM"]
+
 OPEN_TICKS = 240
 state = {"ticks": 0, "handle": None, "done": False}
 
@@ -57,6 +66,12 @@ def run():
     names.set_editor_property("look_right", LOOK_RIGHT)
     names.set_editor_property("look_up", LOOK_UP)
     names.set_editor_property("look_down", LOOK_DOWN)
+    names.set_editor_property("turn_left", TURN_LEFT)
+    names.set_editor_property("turn_right", TURN_RIGHT)
+    names.set_editor_property("turn_up", TURN_UP)
+    names.set_editor_property("turn_down", TURN_DOWN)
+    names.set_editor_property("tilt_left", TILT_LEFT)
+    names.set_editor_property("tilt_right", TILT_RIGHT)
     default.set_editor_property("CurveNames", names)
     default.set_editor_property("bApplyPresence", True)
 
@@ -69,6 +84,9 @@ def run():
     applied = check.get_editor_property("CurveNames")
     print(f"### blink curves: {list(applied.get_editor_property('blink'))}")
     print(f"### look-left curves: {list(applied.get_editor_property('look_left'))}")
+    print(f"### head turn curves: {list(applied.get_editor_property('turn_left'))}"
+          f" / {list(applied.get_editor_property('turn_right'))}")
+    print(f"### head range: {check.get_editor_property('HeadRangeDegrees')} degrees")
     print(f"### apply presence: {check.get_editor_property('bApplyPresence')}")
     print(f"### eye range: {check.get_editor_property('EyeRangeDegrees')} degrees")
     print(f"### saved: {saved}")

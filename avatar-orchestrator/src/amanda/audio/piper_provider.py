@@ -106,7 +106,7 @@ def model_sample_rate(model: Path) -> int | None:
     if not config.exists():
         return None
     try:
-        return int(json.loads(config.read_text())["audio"]["sample_rate"])
+        return int(json.loads(config.read_text(encoding="utf-8"))["audio"]["sample_rate"])
     except (OSError, KeyError, ValueError, TypeError):
         return None
 

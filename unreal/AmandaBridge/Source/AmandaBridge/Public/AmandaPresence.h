@@ -75,12 +75,17 @@ struct AMANDABRIDGE_API FAmandaFaceState
  */
 struct FAmandaBlinkScheduler
 {
-	float IntervalLow = 2.4f;
-	float IntervalHigh = 6.8f;
+	// Widened from the reference implementation's 2.4-6.8 after watching the
+	// real face: 21 blinks a minute read as nervous, where it looked fine on
+	// the previsualiser's schematic one. schedulers.py carries the same change.
+	float IntervalLow = 4.0f;
+	float IntervalHigh = 9.0f;
 	float CloseMs = 62.0f;
 	float OpenMs = 118.0f;
 	float DoubleBlinkProbability = 0.12f;
-	float SaccadeBlinkProbability = 0.22f;
+	// Also down, from 0.22. A blink on every other glance was much of what made
+	// the rate feel high, and it is the least missed when it goes.
+	float SaccadeBlinkProbability = 0.10f;
 
 	void Start(float Now, FRandomStream& Rng);
 	/** Above 1.0 means longer gaps: less blinking, more concentration. */
@@ -227,6 +232,14 @@ public:
 	/** Follow the orchestrator's direction, when a bridge is connected. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Amanda|Presence")
 	bool bFollowBridge = true;
+
+	/**
+	 * Seconds between blinks, before the log-normal draw and the rate scale.
+	 * Exposed because it is the number most likely to want another look, and
+	 * changing it should not need a recompile.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Amanda|Presence")
+	FVector2D BlinkIntervalSeconds = FVector2D(4.0f, 9.0f);
 
 	/** Eye contact each conversation state asks for (build plan 8). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Amanda|Presence")

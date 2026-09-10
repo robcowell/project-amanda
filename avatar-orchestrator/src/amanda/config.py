@@ -67,7 +67,7 @@ def load(name: str) -> dict[str, Any]:
     try:
         import yaml
 
-        loaded = yaml.safe_load(path.read_text())
+        loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
     except Exception as exc:  # noqa: BLE001 - config must never block startup
         log.warning("ignoring %s: %s", path, exc)
         return {}
@@ -101,7 +101,7 @@ def load_env(path: Path | None = None) -> list[str]:
         return []
 
     try:
-        lines = path.read_text().splitlines()
+        lines = path.read_text(encoding="utf-8").splitlines()
     except OSError as exc:
         log.warning("could not read %s: %s", path, exc)
         return []

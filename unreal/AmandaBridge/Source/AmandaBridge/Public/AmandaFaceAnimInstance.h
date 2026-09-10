@@ -51,6 +51,28 @@ struct AMANDABRIDGE_API FAmandaFaceCurveNames
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Amanda|Curves")
 	TArray<FName> LookDown;
+
+	/**
+	 * Head turn and tilt. The rig decomposes each into Down/Mid/Up variants for
+	 * the face board's rows; the Mid ones are the plain rotation.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Amanda|Curves")
+	TArray<FName> TurnLeft;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Amanda|Curves")
+	TArray<FName> TurnRight;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Amanda|Curves")
+	TArray<FName> TurnUp;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Amanda|Curves")
+	TArray<FName> TurnDown;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Amanda|Curves")
+	TArray<FName> TiltLeft;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Amanda|Curves")
+	TArray<FName> TiltRight;
 };
 
 /**
@@ -86,6 +108,16 @@ public:
 	 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Amanda|Presence")
 	float EyeRangeDegrees = 15.0f;
+
+	/**
+	 * Degrees of head rotation that count as a full turn or tilt.
+	 *
+	 * Smaller than it sounds, because presence moves the head by a degree or
+	 * two and dividing that by a generous range makes it invisible -- which is
+	 * what "zero head tilt" looked like, before the head was driven at all.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Amanda|Presence")
+	float HeadRangeDegrees = 6.0f;
 
 	/** This frame's presence, for a graph that wants to read it. */
 	UPROPERTY(BlueprintReadOnly, Category = "Amanda|Presence")

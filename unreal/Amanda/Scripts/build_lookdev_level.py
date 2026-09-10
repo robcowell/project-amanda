@@ -54,9 +54,20 @@ EXPOSURE = 160.0
 #: in front of it. Measured off a render rather than reasoned about.
 CHARACTER_YAW = -90.0
 
-#: How far the camera stands back. At 85mm this is head and shoulders; closer
-#: than about two metres and an 85mm lens is inside the person's face.
-CAMERA_DISTANCE = 250.0
+#: How far the camera stands back from the face.
+#:
+#: 250cm was head and shoulders with room to spare. 120cm was too tight -- an
+#: 85mm frame is only 34cm tall there and her hair needs about 31 of them, so
+#: the crown clipped. 145cm gives a 41cm frame: head and hair filling about
+#: three quarters of it, with a hand's width of air above and below.
+CAMERA_DISTANCE = 145.0
+
+#: How far below the eye line to aim, as a fraction of the frame height.
+#:
+#: A sixth puts the eyes on the upper third, which is the portrait convention
+#: and was cropping the crown at this distance. A sixteenth keeps them a little
+#: high without pushing the top of the head out of frame.
+EYE_DROP = 1.0 / 16.0
 
 #: Epic's own portrait environment, shipped with the character plugin. Ambient
 #: light with some direction in it beats a flat grey constant.
@@ -247,11 +258,73 @@ def place_character():
     return actor
 
 
-def add_camera(head):
-    """A portrait lens at conversational distance, not a game camera."""
-    camera = spawn(unreal.CineCameraActor, unreal.Vector(CAMERA_DISTANCE, 0.0, EYE_HEIGHT))
+def eye_line(actor):
+    """Where her eyes actually are, rather than where I guessed.
+
+    The first framing assumed a 160 cm eye line and put her chin at the centre
+    of frame with the top of her head cropped. The rig knows: the eye bones sit
+    at 169.5 cm and the head bone at 163.3.
+    """
+    if actor is None:
+        return unreal.Vector(0.0, 0.0, EYE_HEIGHT)
+
+    for component in actor.get_components_by_class(unreal.SkeletalMeshComponent):
+        if "face" not in component.get_name().lower():
+            continue
+        sockets = {str(name) for name in component.get_all_socket_names()}
+        if {"FACIAL_L_Eye", "FACIAL_R_Eye"} <= sockets:
+            left = component.get_socket_location("FACIAL_L_Eye")
+            right = component.get_socket_location("FACIAL_R_Eye")
+            middle = (left + right) * 0.5
+            print(f"###   eye line measured at {middle.z:.1f}cm")
+            return middle
+    return unreal.Vector(0.0, 0.0, EYE_HEIGHT)
+
+
+def head_top(actor, eyes):
+    """The actual top of her hair, from the actor's bounds.
+
+    Estimating this went wrong twice -- hair is taller than a skull, and the
+    crown clipped both times. `get_actor_bounds` knows: the top of the box is
+    the top of the head, because nothing on her reaches higher.
+    """
+    if actor is None:
+        return eyes.z + 14.0
+    origin, extent = actor.get_actor_bounds(only_colliding_components=False)
+    top = origin.z + extent.z
+    print(f"###   head top measured at {top:.1f}cm")
+    return top
+
+
+def add_camera(actor):
+    """A portrait lens at conversational distance, not a game camera.
+
+    Framed on the eyes and tight on the face. The camera sits level with the
+    eye line -- looking up at someone is a different character -- and aims a
+    little below it, which puts the eyes on the upper third where a portrait
+    wants them and keeps the top of the head inside the frame.
+    """
+    eyes = eye_line(actor)
+    top = head_top(actor, eyes)
+
+    # Eyes sit roughly 42% of the way down a head measured with its hair, so
+    # the whole head is about this tall, and the frame wants it filling around
+    # three quarters with air top and bottom.
+    head_height = max(18.0, (top - eyes.z) / 0.42)
+    frame_height = head_height / 0.72
+    distance = frame_height / (2.0 * 0.1416)
+
+    camera = spawn(
+        unreal.CineCameraActor,
+        unreal.Vector(eyes.x + distance, 0.0, eyes.z),
+    )
     camera.set_actor_label("PortraitCamera")
-    aim(camera, head)
+
+    # Aim so the frame's top edge clears her hair by a little, rather than
+    # putting the eyes on a rule-of-thirds line and hoping the crown fits.
+    centre = top + frame_height * 0.06 - frame_height * 0.5
+    aim(camera, unreal.Vector(eyes.x, 0.0, centre))
+    print(f"###   frame {frame_height:.0f}cm tall at {distance:.0f}cm, centred on {centre:.1f}cm")
 
     component = camera.get_cine_camera_component()
     # 85mm at two and a half metres: head and shoulders, and the focal length
@@ -260,7 +333,7 @@ def add_camera(head):
     component.set_editor_property("current_aperture", 4.0)
     focus = component.get_editor_property("focus_settings")
     focus.set_editor_property("focus_method", unreal.CameraFocusMethod.MANUAL)
-    focus.set_editor_property("manual_focus_distance", CAMERA_DISTANCE)
+    focus.set_editor_property("manual_focus_distance", distance)
     component.set_editor_property("focus_settings", focus)
     print(f"### camera: 85mm at f/4, {CAMERA_DISTANCE:.0f}cm back, focused on the eyes")
     return camera
@@ -275,8 +348,8 @@ def build():
 
     build_lighting(head)
     pin_exposure()
-    place_character()
-    add_camera(head)
+    character = place_character()
+    add_camera(character)
 
     actor_count = len(
         unreal.get_editor_subsystem(unreal.EditorActorSubsystem).get_all_level_actors()

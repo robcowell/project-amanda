@@ -62,6 +62,20 @@ void UAmandaFaceAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	ApplyToCurves(CurveNames.LookRight, FMath::Max(0.0f, Yaw));
 	ApplyToCurves(CurveNames.LookUp, FMath::Max(0.0f, Pitch));
 	ApplyToCurves(CurveNames.LookDown, FMath::Max(0.0f, -Pitch));
+
+	// The head, the same way. Gaze lag and drift both arrive in here, so this
+	// is what stops her facing the camera dead-on for an entire conversation.
+	const float HeadRange = FMath::Max(HeadRangeDegrees, 1.0f);
+	const float HeadYaw = FMath::Clamp(Face.HeadYaw / HeadRange, -1.0f, 1.0f);
+	const float HeadPitch = FMath::Clamp(Face.HeadPitch / HeadRange, -1.0f, 1.0f);
+	const float HeadRoll = FMath::Clamp(Face.HeadRoll / HeadRange, -1.0f, 1.0f);
+
+	ApplyToCurves(CurveNames.TurnLeft, FMath::Max(0.0f, -HeadYaw));
+	ApplyToCurves(CurveNames.TurnRight, FMath::Max(0.0f, HeadYaw));
+	ApplyToCurves(CurveNames.TurnUp, FMath::Max(0.0f, HeadPitch));
+	ApplyToCurves(CurveNames.TurnDown, FMath::Max(0.0f, -HeadPitch));
+	ApplyToCurves(CurveNames.TiltLeft, FMath::Max(0.0f, -HeadRoll));
+	ApplyToCurves(CurveNames.TiltRight, FMath::Max(0.0f, HeadRoll));
 }
 
 void UAmandaFaceAnimInstance::ApplyToCurves(const TArray<FName>& Names, float Value)
