@@ -23,6 +23,11 @@
 			"Enabled": true
 		},
 		{
+			"Comment": "The character tooling: creating, sculpting and assembling a MetaHuman. Pulls in MetaHuman, MetaHumanSDK, RigLogic and the rest by dependency. Without it `unreal.MetaHumanCharacter` does not exist and none of Scripts/create_metahuman.py can run.",
+			"Name": "MetaHumanCharacter",
+			"Enabled": true
+		},
+		{
 			"Name": "PythonScriptPlugin",
 			"Enabled": true
 		}
