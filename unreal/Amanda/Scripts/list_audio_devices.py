@@ -10,7 +10,13 @@ This asks the engine directly, headlessly, in about fifteen seconds:
     "D:\\unreal\\UE_5.8\\Engine\\Binaries\\Win64\\UnrealEditor-Cmd.exe" ^
         "D:\\code\\project-amanda\\unreal\\Amanda\\Amanda.uproject" ^
         -run=pythonscript -script="Scripts/list_audio_devices.py" ^
-        -unattended -nopause -nosplash
+        -unattended -nopause -nosplash -AllowCommandletAudio
+
+**`-AllowCommandletAudio` is not optional.** A commandlet starts with audio
+disabled -- the log says "Audio Device Manager not initializing due to all audio
+being disabled" -- and without it this script reports zero devices on a machine
+that has plenty. That is a false negative on the one question the project most
+needs a true answer to, so check for that line before believing an empty list.
 
 It uses `UMetaHumanLocalLiveLinkSourceBlueprint`, the same API the Live Link
 panel's own UI is built on, so what it prints is what the dropdown would show.
@@ -61,8 +67,17 @@ def main():
     )
 
     if not devices:
-        print("\nNo audio devices at all. Either nothing is connected, or the")
-        print("MetaHumanLiveLink plugin is not enabled in this project.")
+        print("\nNo audio devices at all. Three things do this, in the order")
+        print("they are worth checking:")
+        print("  1. Running headless without -AllowCommandletAudio. The log")
+        print("     says 'all audio being disabled' when that is the cause.")
+        print("  2. The machine genuinely has no active capture endpoint --")
+        print("     Windows reports no default input device, and a Bluetooth")
+        print("     headset that is paired but not connected does not count.")
+        print("     Compare against the orchestrator's own view:")
+        print("       python tools/audio_route_check.py --list")
+        print("  3. The MetaHumanLiveLink plugin is not enabled. Unlikely if")
+        print("     this script got as far as printing anything at all.")
         return
 
     cable = []
