@@ -176,6 +176,12 @@ def claude_settings() -> dict[str, Any]:
     return dict(settings) if isinstance(settings, dict) else {}
 
 
+def wake_settings() -> dict[str, Any]:
+    """The `wake:` block from config/avatar.yaml."""
+    settings = load("avatar.yaml").get("wake")
+    return dict(settings) if isinstance(settings, dict) else {}
+
+
 def stt_settings() -> dict[str, Any]:
     """The `stt:` block from config/avatar.yaml."""
     settings = load("avatar.yaml").get("stt")

@@ -27,6 +27,7 @@ from amanda.audio.microphone import Microphone
 from amanda.audio.sink import DeviceSink, NullSink
 from amanda.audio.speech import SpeechSession
 from amanda.audio.stt import build as build_recognizer
+from amanda.audio.wake import build as build_wake
 from amanda.avatar.protocol import CancelReason, SessionEnded, SessionStarted, UserDetected
 from amanda.avatar.websocket import DEFAULT_HOST, DEFAULT_PORT, AvatarBridge
 from amanda.claude.conversation import Conversation
@@ -90,9 +91,13 @@ class Session:
     def _build_input(self) -> ConversationInput:
         if not self.args.voice:
             return TypedInput()
+        from amanda.config import wake_settings
+
         return VoiceInput(
             microphone=Microphone(device=self.args.input_device),
             recognizer=build_recognizer(self.args.stt),
+            wake=build_wake(self.args.wake),
+            awake_seconds=float(wake_settings().get("awake_seconds", 45.0)),
         )
 
     # ----------------------------------------------------------------- #
@@ -130,11 +135,14 @@ class Session:
                 self.input = TypedInput()
                 await self.input.start()
 
-            print(
-                "speak, then pause"
-                if self.args.voice
-                else "type a message; type again while it speaks to interrupt"
-            )
+            if self.args.voice:
+                detector = getattr(self.input, "wake", None)
+                if detector is not None and not detector.always_awake:
+                    print(f"say the wake word ({detector.name}), then speak")
+                else:
+                    print("speak, then pause -- listening to everything")
+            else:
+                print("type a message; type again while it speaks to interrupt")
             print("ctrl-d to quit\n")
 
             self.bridge.send(SessionStarted(session_id=self.session_id))
@@ -154,7 +162,10 @@ class Session:
             if not self.args.voice:
                 print("> ", end="", flush=True)
 
-            self.enter(ConversationState.LISTENING)
+            # Asleep is a state the renderer should show: gaze off, settled,
+            # not tracking anybody. Waking is what ATTENTIVE is for.
+            awake = getattr(self.input, "awake", True)
+            self.enter(ConversationState.LISTENING if awake else ConversationState.IDLE)
             turn = await self.input.next_turn()
             if turn is None:
                 print()
@@ -298,6 +309,9 @@ def main() -> int:
     parser.add_argument("--model", help="overrides claude.model in config/avatar.yaml")
     parser.add_argument("--effort", help="overrides claude.effort in config/avatar.yaml")
     parser.add_argument("--stt", help="whisper, scripted, or auto (the default)")
+    parser.add_argument(
+        "--wake", help="openwakeword, porcupine, or none to listen to everything"
+    )
     parser.add_argument("--input-device", help="microphone, by index or name fragment")
     parser.add_argument(
         "--engine", default="auto", choices=["auto", *sorted(ENGINES)],

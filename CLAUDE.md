@@ -91,6 +91,10 @@ Each of these cost something to learn.
   barge-in, which needs the microphone live while the avatar speaks. See
   `docs/jarvis-overlap.md`.
 
+- **Never call openWakeWord's `Model.reset()`.** It clears a prediction
+  buffer its scoring depends on and leaves the detector deaf for ~2.4s,
+  longer than the wake phrase itself. Our `reset()` clears only our own
+  framing buffer and cooldown.
 - **Warm before opening the microphone.** A capture stream running with
   nothing subscribed discards what it hears, so loading a model first would
   leave a cold start deaf for as long as the load took, without saying so.

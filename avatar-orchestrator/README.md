@@ -404,6 +404,39 @@ check the clock to tell the difference. Voice input gets it free: the barge-in
 detector is only fed while armed, so nothing said before the avatar started
 counts against it.
 
+## The wake word
+
+Without one, `--voice` sends every utterance in earshot to Claude — the telly,
+someone on the phone next door, a conversation the avatar was not part of. So
+turns are gated:
+
+```sh
+python3 -m amanda.main --voice              # gated (the default)
+python3 -m amanda.main --voice --wake none  # listen to everything
+```
+
+**The shipped keyword is a placeholder.** openWakeWord needs no account and
+ships its models, but its vocabulary is fixed — `alexa`, `hey_jarvis`,
+`hey_marvin`, `hey_mycroft` — and none of them is the character's name. For a
+real "Amanda": generate a `.ppn` in the Picovoice console (free for personal
+use), set `wake.backend` to `porcupine` and put the path in `wake.keyword`.
+
+It is needed **once**, not before every sentence — each turn holds the
+conversation open for `awake_seconds`. Being made to say it every time is what
+makes an assistant feel like a vending machine rather than someone in the room.
+While asleep the renderer is put in IDLE, so the face settles and stops
+tracking rather than merely going quiet.
+
+Measured: the wake phrase scored 0.854 and an ordinary sentence 0.000, and
+detection costs 0.4–1.0 ms per 32 ms frame — about 2% of a core to run
+continuously.
+
+Two things about openWakeWord worth knowing. Its `Model.reset()` clears a
+prediction buffer its scoring depends on, leaving it **deaf for ~2.4 seconds**;
+ours deliberately does not call it. And its streaming context is process-wide
+and carries whatever ran before — a burst of loud non-speech immediately before
+the wake word measurably suppresses it, which matters if the room has music in.
+
 ## Hearing
 
 `audio/microphone.py` opens one capture stream and fans it out; `audio/vad.py`

@@ -33,6 +33,7 @@ from typing import Protocol, runtime_checkable
 from amanda.audio.microphone import Microphone
 from amanda.audio.stt import SpeechRecognizer
 from amanda.audio.vad import BargeInDetector, Endpointer, Utterance
+from amanda.audio.wake import AlwaysAwake, WakeWordDetector
 
 log = logging.getLogger(__name__)
 
@@ -179,6 +180,16 @@ class VoiceInput:
     endpointer: Endpointer = field(default_factory=Endpointer)
     barge_in: BargeInDetector = field(default_factory=BargeInDetector)
 
+    #: The word that opens a conversation. `AlwaysAwake` means there is no gate
+    #: and every utterance is a turn.
+    wake: WakeWordDetector = field(default_factory=AlwaysAwake)
+
+    #: How long the conversation stays open after the last thing anybody said.
+    #: Long enough that the wake word is not needed between turns -- being made
+    #: to say it before every sentence is what makes an assistant feel like a
+    #: vending machine rather than someone in the room.
+    awake_seconds: float = 45.0
+
     #: Utterances with less voiced audio than this are discarded rather than
     #: transcribed. Measured against `voiced_ms`, not the buffer length: an
     #: utterance always carries its pre-roll and the silence that ended it, so
@@ -197,8 +208,18 @@ class VoiceInput:
     _interrupted: asyncio.Event = field(default_factory=asyncio.Event, init=False)
     _armed: bool = field(default=False, init=False)
 
-    #: Utterances dropped for being too short to be worth transcribing.
+    #: Utterances dropped for being too short, too quiet, or unheard because
+    #: the wake word had not been said.
     discarded: int = field(default=0, init=False)
+    #: How many times the wake word has opened a conversation.
+    wakes: int = field(default=0, init=False)
+
+    _awake_until: float = field(default=0.0, init=False)
+
+    @property
+    def awake(self) -> bool:
+        """Whether the avatar is currently listening for turns."""
+        return self.wake.always_awake or time.monotonic() < self._awake_until
 
     async def start(self) -> None:
         # Warm first, then open the microphone. Loading a model takes seconds,
@@ -206,6 +227,7 @@ class VoiceInput:
         # audio that goes nowhere -- a cold start would be deaf for exactly as
         # long as the model took to load, without saying so.
         await self.recognizer.warm()
+        await self.wake.warm()
         await self.microphone.start()
         self._reader = asyncio.create_task(self._read(), name="microphone")
 
@@ -232,6 +254,13 @@ class VoiceInput:
                 self.discarded += 1
                 continue
 
+            if not self.awake:
+                # Heard, but not addressed to the avatar. Not transcribed
+                # either: the point of the gate is that a conversation the
+                # avatar is not part of costs nothing.
+                self.discarded += 1
+                continue
+
             transcript = await self.recognizer.transcribe(utterance)
             if transcript.empty:
                 # Silence the endpointer let through. Whisper will happily
@@ -240,6 +269,9 @@ class VoiceInput:
                 self.discarded += 1
                 continue
 
+            # Each turn holds the conversation open, so the wake word is
+            # needed once rather than before every sentence.
+            self._awake_until = time.monotonic() + self.awake_seconds
             return UserTurn(
                 text=transcript.text,
                 ended_at=ended_at,
@@ -271,6 +303,10 @@ class VoiceInput:
                         self._utterances.put_nowait(utterance)
                     if self._armed and self.barge_in.feed(frame):
                         self._interrupted.set()
+                    if self.wake.feed(frame):
+                        self.wakes += 1
+                        self._awake_until = time.monotonic() + self.awake_seconds
+                        log.info("woken by %s", self.wake.name)
         except asyncio.CancelledError:
             raise
         except Exception:
