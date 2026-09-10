@@ -42,12 +42,18 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from amanda.audio.microphone import (  # noqa: E402
+    CAPTURE_RATE,
+    MicrophoneError,
+    list_input_devices,
+    resolve_device,
+)
 from amanda.audio.sink import DeviceSink, list_output_devices  # noqa: E402
 from amanda.audio.tts import SAMPLE_WIDTH  # noqa: E402
 
-#: What a capture device is asked for. 16 kHz mono is what the speech side of
-#: this project works in, and every device supports it.
-CAPTURE_RATE = 16_000
+# CAPTURE_RATE and the device helpers are imported rather than restated, so this
+# tool asks a device for exactly what the orchestrator's microphone asks it for.
+# A spike that proved the route at some other rate would not have proved it.
 
 #: Level below which the recording is silence rather than signal. A live but
 #: unrouted capture device sits near -70 dBFS; anything genuinely playing sits
@@ -82,16 +88,6 @@ def peak_db(pcm: bytes) -> float:
 # --------------------------------------------------------------------------- #
 
 
-def list_input_devices() -> list[tuple[int, str]]:
-    import sounddevice
-
-    return [
-        (index, device["name"])
-        for index, device in enumerate(sounddevice.query_devices())
-        if device["max_input_channels"] > 0
-    ]
-
-
 def show_devices() -> None:
     """Print every device, marking the ones that look like virtual cables.
 
@@ -123,14 +119,13 @@ def _mark(name: str) -> str:
 # --------------------------------------------------------------------------- #
 
 
-async def record(device: str | int | None, seconds: float) -> bytes:
+async def record(device: int | None, seconds: float, rate: int) -> bytes:
     """Capture from an input device, exactly as a Live Link source would."""
     import sounddevice
 
-    resolved = _resolve_input(device)
-    frames = round(CAPTURE_RATE * seconds)
+    frames = round(rate * seconds)
     stream = sounddevice.RawInputStream(
-        samplerate=CAPTURE_RATE, channels=1, dtype="int16", device=resolved
+        samplerate=rate, channels=1, dtype="int16", device=device
     )
     chunks: list[bytes] = []
 
@@ -147,17 +142,6 @@ async def record(device: str | int | None, seconds: float) -> bytes:
 
     await asyncio.to_thread(capture)
     return b"".join(chunks)
-
-
-def _resolve_input(name: str | int | None) -> int | None:
-    if name is None or isinstance(name, int):
-        return name
-    needle = str(name).casefold()
-    for index, device_name in list_input_devices():
-        if needle in device_name.casefold():
-            return index
-    available = ", ".join(repr(device_name) for _, device_name in list_input_devices())
-    raise SystemExit(f"no input device matching {name!r}.\nAvailable: {available}")
 
 
 async def signal(args: argparse.Namespace) -> tuple[bytes, int]:
@@ -195,6 +179,12 @@ async def signal(args: argparse.Namespace) -> tuple[bytes, int]:
 
 
 async def run(args: argparse.Namespace) -> int:
+    try:
+        capture_device = resolve_device(args.into)
+    except MicrophoneError as exc:
+        print(f"\nFAILED to find the input device: {exc}")
+        return 2
+
     played, play_rate = await signal(args)
     duration = len(played) / SAMPLE_WIDTH / play_rate
     print(f"\nplaying {duration:.1f}s into {args.out!r}, recording from {args.into!r}")
@@ -208,7 +198,7 @@ async def run(args: argparse.Namespace) -> int:
 
     # Recording starts first and runs a little longer, so nothing is lost to
     # the device opening late or the tail arriving after playback returns.
-    capture = asyncio.create_task(record(args.into, duration + 0.6))
+    capture = asyncio.create_task(record(capture_device, duration + 0.6, args.rate))
     await asyncio.sleep(0.2)
     await sink.write(played)
     await sink.drain()
@@ -221,7 +211,7 @@ async def run(args: argparse.Namespace) -> int:
 def report(recorded: bytes, duration: float, args: argparse.Namespace) -> int:
     level = rms_db(recorded)
     peak = peak_db(recorded)
-    print(f"\ncaptured {len(recorded) / SAMPLE_WIDTH / CAPTURE_RATE:.1f}s")
+    print(f"\ncaptured {len(recorded) / SAMPLE_WIDTH / args.rate:.1f}s")
     print(f"  rms  {level:6.1f} dBFS")
     print(f"  peak {peak:6.1f} dBFS")
 
@@ -229,7 +219,7 @@ def report(recorded: bytes, duration: float, args: argparse.Namespace) -> int:
         with wave.open(str(args.save), "wb") as handle:
             handle.setnchannels(1)
             handle.setsampwidth(SAMPLE_WIDTH)
-            handle.setframerate(CAPTURE_RATE)
+            handle.setframerate(args.rate)
             handle.writeframes(recorded)
         print(f"  saved to {args.save} -- listen to it before believing any of this")
 
@@ -266,6 +256,12 @@ def main() -> int:
     parser.add_argument("--wav", type=Path, help="play this mono 16-bit WAV instead")
     parser.add_argument("--engine", default="auto", help="TTS engine for --say")
     parser.add_argument("--seconds", type=float, default=2.0, help="tone length")
+    parser.add_argument(
+        "--rate",
+        type=int,
+        default=CAPTURE_RATE,
+        help="capture rate; some cables refuse to convert and want 48000",
+    )
     parser.add_argument("--save", type=Path, help="write the captured audio here")
     args = parser.parse_args()
 
