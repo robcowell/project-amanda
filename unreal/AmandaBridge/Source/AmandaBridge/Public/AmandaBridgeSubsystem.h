@@ -37,7 +37,11 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FAmandaGestureSignature, FAmandaGest
  * session, performance and gaze state, so this side never has to remember
  * anything across a drop.
  */
-UCLASS(DisplayName = "Amanda Bridge Subsystem")
+// Config = Game puts Host, Port and bAutoConnect in DefaultGame.ini rather than
+// in code, which is the same rule the orchestrator follows for the other half
+// of this connection. UHT requires the class to name the file: a Config
+// property with no config section to live in is an error, not a default.
+UCLASS(Config = Game, DisplayName = "Amanda Bridge Subsystem")
 class AMANDABRIDGE_API UAmandaBridgeSubsystem : public UGameInstanceSubsystem
 {
 	GENERATED_BODY()

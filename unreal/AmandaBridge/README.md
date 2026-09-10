@@ -8,8 +8,8 @@ justified" rule points at C++: the engine ships a `WebSockets` module with an
 `IWebSocket` interface, but exposes **no Blueprint nodes for it**. Everything
 above the socket stays in Blueprints.
 
-> ⚠️ **This has never been compiled.** It was written on a Linux laptop with no
-> Unreal install. See [Status](#status) before you spend an evening on it.
+> Compiled and tested against **UE 5.8.2** on 2026-09-10. See
+> [Status](#status) for what that did and did not prove.
 
 ## Install
 
@@ -103,34 +103,29 @@ and receive a fresh `avatar.reset` without you touching anything.
 
 ## Status
 
-**Written, not compiled.** There is no Unreal install on the machine this was
-authored on, so every line is written against documented APIs and the protocol
-semantics are verified only on the Python side.
+**Compiles clean on UE 5.8.2**, with MSVC 14.50 (Visual Studio 2026) and the
+Windows 10.0.26100 SDK. Built as part of the `Amanda` editor target on
+2026-09-10.
 
-What is genuinely verified:
+One fix was needed, and it came from the header tool rather than the compiler:
+`UAmandaBridgeSubsystem` declared `Config` properties without the class naming a
+config file, which UHT rejects. It is now `UCLASS(Config = Game, ...)`, so
+`Host`, `Port` and `bAutoConnect` live in `DefaultGame.ini` — the same rule the
+orchestrator follows for its half of the connection.
 
-- The protocol semantics, by 108 Python tests over the same rules.
-- The fixture, which is generated rather than transcribed.
-- That the sample session exercises all fifteen events.
+The three places this README predicted would need a nudge all compiled
+unchanged: the `EAutomationTestFlags` shim guessed 5.5+ correctly,
+`TryGetObjectField`'s out-parameter signature was right, and the defensive
+`AsyncTask` hop is accepted. Being wrong about all three in the *safe* direction
+is the outcome to want from code written blind.
 
-What is not:
+What that does and does not prove:
 
-- That any of it compiles.
-
-Three places most likely to need a nudge, in order of likelihood:
-
-1. **`EAutomationTestFlags` in `AmandaBridgeTests.cpp`.** These constants moved
-   out of the enum's scope in UE 5.5. There is a version shim at the top of the
-   file; if it guesses wrong, the fix is one line and the compiler will say so.
-2. **`FJsonObject::TryGetObjectField`** in `Decode`. The out-parameter is taken
-   as `const TSharedPtr<FJsonObject>*&`, which is unusual enough to be worth
-   checking against your engine version's header.
-3. **Thread affinity of `IWebSocket` callbacks.** The engine delivers them on
-   the game thread, so `HandleMessage` is normally a straight call. The hop
-   through `AsyncTask` is defensive, because these are Blueprint-assignable
-   delegates and broadcasting one off the game thread fails in ways that are
-   very hard to trace back here. If it turns out to be unnecessary it costs one
-   branch.
+- The protocol semantics are verified by 108 Python tests over the same rules,
+  and the conformance suite here decodes a fixture *generated* by that
+  implementation rather than transcribed from it.
+- Compiling is not running. The socket has not yet carried a live conversation
+  into a running editor, and no Blueprint has bound to these events.
 
 ## Design notes
 

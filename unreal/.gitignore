@@ -11,6 +11,11 @@ Saved/
 *.VC.db
 *.opendb
 
+# The project's Plugins/AmandaBridge is a junction back to unreal/AmandaBridge
+# in this same repo -- one copy of the plugin, editable from either path.
+# Tracking it here would commit the plugin twice.
+Amanda/Plugins/
+
 # MetaHuman and Quixel assets are hundreds of megabytes of binary and come from
 # Fab rather than from here. Content/ is deliberately not ignored wholesale --
 # levels, Blueprints and the animation graph are the project -- so add specific
