@@ -45,15 +45,18 @@ Built and tested, 400 tests:
 - the performance director — a second, cheap call classifying how each reply
   should be delivered — and the smoothing that keeps it restrained.
 
-Compiles, against UE 5.8.2, with its conformance suites passing in the editor's
-automation runner:
+On the renderer side, against UE 5.8.2:
 
-- the C++ bridge subsystem, decoding a fixture the Python side generates.
+- the C++ bridge subsystem compiles, and its conformance suites pass in the
+  editor's automation runner, decoding a fixture the Python side generates;
+- MetaHuman Live Link accepts a virtual audio cable as a real-time audio
+  source -- the assumption the whole architecture rested on, tested at last.
 
-Not started, and the reason nothing here is proven yet: **the visual premise.**
-No MetaHuman, no lighting, no look-dev. §17 of the plan is blunt that if the
-neutral render is unconvincing, animation does not rescue it. See
-[`unreal/PHASE0.md`](unreal/PHASE0.md).
+Not started, and the reason the premise is still unproven: **the visual half.**
+No MetaHuman, no lighting, no look-dev. Audio reaches a running solver; whether
+a face moves convincingly from it is a different question, and section 17 of the
+plan is blunt that if the neutral render is unconvincing, animation does not
+rescue it. See [`unreal/PHASE0.md`](unreal/PHASE0.md).
 
 ## Getting started
 
@@ -72,11 +75,15 @@ conversation instead, set `ANTHROPIC_API_KEY` and run `python -m amanda.main`
 (add `--voice` to speak to it, `--scripted` to run with no key at all);
 [`avatar-orchestrator/README.md`](avatar-orchestrator/README.md) covers the rest.
 
-## The one thing worth testing first
+## The assumption everything rested on
 
-The plan assumes a virtual audio cable can carry TTS from the orchestrator into
-a MetaHuman Audio Live Link source. It is the only open assumption that could
-change the architecture, and half of it needs no engine at all:
+The plan assumed a virtual audio cable could carry TTS from the orchestrator
+into a MetaHuman Audio Live Link source. It was the only open question that
+could have changed the architecture, and on 2026-09-10 it was answered: yes.
+VB-CABLE enumerates in MetaHuman Live Link at 48 kHz stereo float, and a
+subject created on it starts the solver pipeline and runs.
+
+Repeat it on any new machine, half of it without an engine at all:
 
 ```sh
 .venv/bin/python tools/audio_route_check.py --list
@@ -84,4 +91,6 @@ change the architecture, and half of it needs no engine at all:
 ```
 
 If audio played by this process cannot be captured from a recording device,
-there is no point installing anything else until it can.
+there is no point installing anything else until it can. The Unreal half is
+`unreal/Amanda/Scripts/list_audio_devices.py`; see
+[`unreal/PHASE0.md`](unreal/PHASE0.md).

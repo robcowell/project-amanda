@@ -18,15 +18,16 @@ stand:
 
 | Step | |
 |---|---|
-| 1. Virtual cable | **Blocked.** VB-CABLE not installed, and the machine has no active capture device at all — paired-but-disconnected Bluetooth headsets do not count. Install, reboot, then `--list`. |
+| 1. Virtual cable | **Done.** VB-CABLE installed; both halves enumerate, and audio routes through at -15.5 dBFS. |
 | 2. Unreal 5.8.2 | Done. `D:\unreal\UE_5.8`. Accepted MSVC 14.50; the 14.44 fallback below was not needed. |
 | 3. The project | Done. `unreal/Amanda`, with `Plugins/AmandaBridge` a junction back to `unreal/AmandaBridge`. |
 | 4. Build the plugin | Done. Compiles against 5.8.2. |
 | 5. Prove the bridge | Half. The four conformance suites pass in the automation runner; the live socket into a running editor has not been tried. |
-| 6. A MetaHuman in a lit scene | Not started. MetaHuman ships inside 5.8.2 and is enabled. |
-| 7. The Live Link audio spike | Not started, and gated on step 1. Narrowed, though: see CLAUDE.md — the source enumerates WASAPI endpoints, which is what a virtual cable registers as, and it can be created from script. |
+| 6. A MetaHuman in a lit scene | **Not started, and now the critical path.** MetaHuman ships inside 5.8.2 and is enabled. |
+| 7. The Live Link audio spike | **Done.** CABLE Output enumerates at 48 kHz stereo float; a subject on it starts the MetaHuman pipeline and reports live. |
 
-The riskiest question is still unanswered, and it is still step 1.
+The riskiest question is answered. What is unproven now is the *visual*
+premise -- step 6 -- which no amount of plumbing settles.
 
 ## The machine
 
@@ -180,10 +181,22 @@ an amplifier of whatever it already is.
 Judge it **still**, with no animation running at all. If it reads as a
 waxwork at rest, fix that before wiring anything up.
 
-## 7. The Live Link audio spike
+## 7. The Live Link audio spike — done, 2026-09-10
 
-The remaining half of the risk, and now a narrow question: does the device
-picker list a virtual device?
+**Result: the cable works.** `CABLE Output (VB-Audio Virtual Cable)` enumerates
+in MetaHuman Live Link at 48 kHz stereo float, and a subject created on it
+starts the MetaHuman pipeline and reports live. Steps 1 and 7 below are kept as
+the procedure for repeating it on another machine.
+
+One correction to what follows: **create the source through the Live Link panel
+or a saved preset, not from Python.** `CreateAudioSubject` returns false from
+script — including from a fully ticking editor with 30-second timeouts — and
+does so identically on a physical audio interface, so it is a limitation of the
+synchronous call rather than anything about virtual devices. The enumeration
+script is still the fastest way to answer "can the engine see it".
+
+The original question, kept because it is the one to ask first on new hardware:
+does the device picker list a virtual device?
 
 *Window → Virtual Production → Live Link* → **Add Source** → **MetaHuman
 (Audio)** → pick **CABLE Output** from the audio device list.

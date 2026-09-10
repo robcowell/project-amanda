@@ -78,40 +78,47 @@ D:\unreal\UE_5.8\Engine\Binaries\Win64\UnrealEditor-Cmd.exe `
 `unreal/AmandaBridge`, so there is one copy of the plugin and a fix from either
 path is the same fix.
 
-## The one open risk
+## The risk that gated everything — closed 2026-09-10
 
 MetaHuman's real-time audio solver is a **Live Link source that reads an audio
-capture device**. The plan assumes a virtual audio cable (VB-CABLE) can feed it —
-orchestrator plays TTS into it, Unreal consumes it as a microphone. **That is an
-inference, not a confirmed fact**; Epic's setup page is JavaScript-rendered and
-could not be read directly.
+capture device**, and the whole architecture assumed a virtual audio cable could
+feed it: orchestrator plays TTS into it, Unreal consumes it as a microphone.
+That was an inference for months. It is now tested, and it holds.
 
-It is the only step whose outcome could change the architecture, and it is an
-hour to test: install VB-CABLE, play a WAV into it, see whether a Live Link
-source moves the face. **Do this before building anything in Unreal that depends
-on it.** Fallbacks: a runtime ONNX audio-to-face plugin from Fab, or baking each
-utterance offline (kills latency, proves everything else).
+It split in two, and only the second half needed Unreal: whether audio can
+travel from this process into a capture device at all, and whether the Live
+Link source will accept that device. `avatar-orchestrator/tools/audio_route_check.py`
+answers the first on any machine, with no engine and no GPU.
 
-It splits in two, and **only the second half needs Unreal**: whether audio can
-travel from this process into a capture device at all, and whether the Live Link
-source will accept that device. `avatar-orchestrator/tools/audio_route_check.py`
-answers the first on any machine, with no engine, no MetaHuman and no GPU. If it
-fails there is no point opening the editor to find out about the second.
+What was verified, in order:
 
-**Narrowed on 2026-09-10, not yet closed.** On Windows the MetaHuman local Live
-Link source depends on `AudioMixerWasapi` and enumerates WASAPI endpoints, which
-is what a virtual cable registers as — more promising than Epic's docs, which
-talk about USB capture hardware. The source can also be created *from script*
-(`UMetaHumanLocalLiveLinkSourceBlueprint`: `GetAudioDevices`,
-`CreateAudioSource`, `CreateAudioSubject`), so the spike is two scripts in
-`unreal/Amanda/Scripts/` rather than a click-through — and eventually the avatar
-can set up its own Live Link source at startup instead of someone wiring it by
-hand before each session.
+1. **VB-CABLE routes audio.** `tools/audio_route_check.py` played through the
+   orchestrator's own `DeviceSink` into CABLE Input and captured it from CABLE
+   Output at −15.5 dBFS RMS.
+2. **MetaHuman Live Link enumerates the cable.** `CABLE Output (VB-Audio
+   Virtual Cable)` appears beside a physical Focusrite interface, both offering
+   **48000 Hz, 2 channel, IEEE Float**. Note that rate: the orchestrator plays
+   22050 Hz mono, so Windows is converting in shared mode — a conversion nobody
+   chose, and worth revisiting.
+3. **A subject on the cable goes live.** `Created subject "Amanda"` → `Started`
+   → `LogMetaHumanPipeline: Run start` → `New static data`, green in the Live
+   Link panel with audio flowing.
 
-What is still unknown is whether a *virtual* device appears in that
-enumeration, because this machine currently has **no active capture device at
-all** — no default input, and paired-but-disconnected Bluetooth headsets do not
-count. Install VB-CABLE, reboot, and run `Scripts/list_audio_devices.py`.
+**Still unproven: a face actually moving.** There is no MetaHuman in the project
+yet, so what is confirmed is that the audio reaches a running solver pipeline —
+not that the result looks like speech. The fallback ladder (a runtime ONNX
+audio-to-face plugin from Fab, or baking utterances offline) is no longer needed
+for *plumbing*, but stays relevant if the animation quality disappoints.
+
+**Set the source up through the UI or a saved preset, not from Python.**
+`UMetaHumanLocalLiveLinkSourceBlueprint.CreateAudioSubject` returns false when
+called from a Python script — from a commandlet, from `-ExecCmds` at startup,
+and from a tick callback 300 ticks into a fully running editor, with 30-second
+timeouts. It fails identically on the physical Focusrite, so this is a property
+of calling it synchronously off the game thread rather than anything to do with
+virtual devices. `GetAudioDevices` and `CreateAudioSource` both work from
+script; only the subject step does not. The Live Link panel's **Presets** are
+the way to make the setup reproducible without a person wiring a dropdown.
 
 This is why audio does **not** travel over the avatar protocol: `speech.started`
 is a cue about audio arriving by a completely separate route.
