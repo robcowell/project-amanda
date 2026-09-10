@@ -267,6 +267,20 @@ machine.
   ~1.3s and 17 output tokens with a schema, ~1.6s and 71 without. Told in prose
   to answer in one line it still explained itself, at 92 tokens. Constraining
   the shape is what stops the model editorialising.
+- **The face's Control Rig overwrites every bone, so nothing upstream of it can
+  move the head.** `ABP_Face_PostProcess` runs after the animation blueprint and
+  writes the bones it owns, the head included. Three routes were tried and all
+  three failed for this one reason: the rig's `CTRL_expressions_headTurn*`
+  curves (0.6px at saturation), the blueprint's own `ARKit_HeadRotation`
+  rotator, and a native anim proxy posing the bone directly. The last one is
+  what proves it -- `Scripts/probe_head_bone.py` reports `bDrivingHead=True`,
+  meaning the bone was found and turned in the graph's output, while the
+  component's head bone stays bit-identical to the reference pose. Anything
+  that has to survive belongs on the far side of that rig, in a post-process
+  blueprint. **Written but not yet proven** (`Scripts/bind_face_post.py`).
+- **Curves are input to that rig; bone poses are output.** Blinks and gaze work
+  from the main graph because the rig consumes those curves. That asymmetry is
+  why the two halves live in two blueprints.
 - **UE 5.8.2 accepted MSVC 14.50 (Visual Studio 2026)** and the 10.0.26100 SDK.
   UE 5.7 documents 14.44 as preferred, so a VS 2022 install had been budgeted
   for and turned out to be unnecessary.

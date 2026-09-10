@@ -20,6 +20,7 @@
 
 #include "CoreMinimal.h"
 #include "Animation/AnimInstance.h"
+#include "Animation/AnimInstanceProxy.h"
 
 #include "AmandaFaceAnimInstance.generated.h"
 
@@ -76,6 +77,53 @@ struct AMANDABRIDGE_API FAmandaFaceCurveNames
 };
 
 /**
+ * Poses the head after the graph has finished with it.
+ *
+ * Curves were the first attempt and the rig ignores them; the blueprint's own
+ * `ARKit_HeadRotation` was the second, and the graph ignores that too -- it was
+ * written faithfully every frame while the head bone stayed bit-identical to
+ * the reference pose, which is measured in `Scripts/probe_head_bone.py`. The
+ * remaining honest route is to rotate the bone ourselves, last, where there is
+ * nothing downstream left to overwrite it.
+ *
+ * A proxy is how a native anim instance reaches the evaluated pose without an
+ * animation graph, which is the whole point of this class: none of this can be
+ * authored from script, and hand-wiring a graph would not survive a rebuild of
+ * the character.
+ */
+USTRUCT()
+struct AMANDABRIDGE_API FAmandaFaceAnimProxy : public FAnimInstanceProxy
+{
+	GENERATED_BODY()
+
+	FAmandaFaceAnimProxy() = default;
+	explicit FAmandaFaceAnimProxy(UAnimInstance* InAnimInstance)
+		: FAnimInstanceProxy(InAnimInstance)
+	{
+	}
+
+	/** Game thread, before evaluation: copy what the worker thread will need. */
+	virtual void PreUpdate(UAnimInstance* InAnimInstance, float DeltaSeconds) override;
+
+	/** Worker thread: run the graph, then turn the head. */
+	virtual bool Evaluate(FPoseContext& Output) override;
+
+	/** Game thread again: report back whether the head was actually posed. */
+	virtual void PostUpdate(UAnimInstance* InAnimInstance) const override;
+
+private:
+	FRotator HeadRotation = FRotator::ZeroRotator;
+	FName HeadBone = NAME_None;
+	FName NeckBone = NAME_None;
+	float NeckShare = 0.0f;
+	bool bApply = false;
+	/** Written during evaluation, read on the game thread by PostUpdate. */
+	mutable bool bPosedHead = false;
+
+	friend class UAmandaFaceAnimInstance;
+};
+
+/**
  * Parent class for the face's animation blueprint.
  *
  * Finds the presence component on the owning actor and writes its output to the
@@ -99,6 +147,23 @@ public:
 	/** Off switch, so the join can be A/B tested against a still face. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Amanda|Presence")
 	bool bApplyPresence = true;
+
+	/**
+	 * Which half of the job this instance does.
+	 *
+	 * The same class is the parent of two blueprints, because the two halves
+	 * have to happen on opposite sides of the face's control rig. Curves are
+	 * *input* to that rig, so they go in the main graph. Head rotation is a
+	 * bone pose, and the rig overwrites every bone it touches -- measured:
+	 * the head was turned in the main graph's output and arrived at the
+	 * renderer bit-identical to the reference pose -- so it goes in the
+	 * post-process graph, which runs after.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Amanda|Presence")
+	bool bApplyCurves = true;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Amanda|Presence")
+	bool bApplyHeadRotation = true;
 
 	/**
 	 * Degrees of eye aim that count as fully looking that way.
@@ -134,36 +199,35 @@ public:
 	bool bHasPresence = false;
 
 	/**
-	 * Names of the blueprint variables Epic's face graph already uses to rotate
-	 * the head.
+	 * The bone the head rotation is applied to, and the one it borrows from.
 	 *
-	 * The rig's `CTRL_expressions_headTurn*` curves exist in the skeleton's
-	 * metadata and do nothing at runtime -- saturating them moved the head by
-	 * 0.6 of a pixel. The head is posed by the animation graph from a rotator
-	 * variable instead, so presence writes that variable by reflection and lets
-	 * the graph do what it already does.
+	 * Splitting the angle across the neck is what stops it reading as a doll's
+	 * head on a peg: real head turns start below the jaw.
 	 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Amanda|Presence")
-	FName HeadRotationVariable = TEXT("ARKit_HeadRotation");
+	FName HeadBone = TEXT("head");
 
-	/** The flag that gates whether the graph applies the head rotator at all. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Amanda|Presence")
-	FName HeadFromLiveLinkVariable = TEXT("LLink_Face_Head");
+	FName NeckBone = TEXT("neck_02");
 
-	/** What to set that flag to. True is what makes the head move. */
+	/** Share of the angle the neck takes. The head takes the rest. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Amanda|Presence")
-	bool bEnableHeadRotationFlag = true;
+	float NeckShare = 0.35f;
 
-	/** Whether those variables were found. False means the head will not move. */
+	/** Whether the head bone was found and posed. Diagnostics. */
 	UPROPERTY(BlueprintReadOnly, Category = "Amanda|Presence")
 	bool bDrivingHead = false;
 
+protected:
+	virtual FAnimInstanceProxy* CreateAnimInstanceProxy() override;
+
 private:
 	void ApplyToCurves(const TArray<FName>& Names, float Value);
-	void ApplyHeadRotation(const FRotator& Rotation);
 
 	UPROPERTY(Transient)
 	TObjectPtr<UAmandaPresenceComponent> Presence = nullptr;
+
+	friend struct FAmandaFaceAnimProxy;
 };
 
 /** Finding out what a rig actually calls things, rather than guessing. */

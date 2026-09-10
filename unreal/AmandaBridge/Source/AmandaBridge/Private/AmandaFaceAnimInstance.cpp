@@ -3,7 +3,10 @@
 #include "AmandaFaceAnimInstance.h"
 #include "AmandaPresence.h"
 
+#include "Animation/AnimationPoseData.h"
 #include "Animation/Skeleton.h"
+#include "AnimationRuntime.h"
+#include "BonePose.h"
 #include "Engine/SkeletalMesh.h"
 #include "GameFramework/Actor.h"
 
@@ -43,7 +46,7 @@ void UAmandaFaceAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	Breath = Face.Breath;
 	PresenceHeadRotation = Presence->GetHeadRotation();
 
-	if (!bApplyPresence)
+	if (!bApplyPresence || !bApplyCurves)
 	{
 		return;
 	}
@@ -80,35 +83,106 @@ void UAmandaFaceAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	ApplyToCurves(CurveNames.TiltLeft, FMath::Max(0.0f, -HeadRoll));
 	ApplyToCurves(CurveNames.TiltRight, FMath::Max(0.0f, HeadRoll));
 
-	// The route that works: the blueprint's own head rotator.
-	ApplyHeadRotation(PresenceHeadRotation);
+	// The head is posed by the proxy, after the graph, from PresenceHeadRotation.
 }
 
-void UAmandaFaceAnimInstance::ApplyHeadRotation(const FRotator& Rotation)
+FAnimInstanceProxy* UAmandaFaceAnimInstance::CreateAnimInstanceProxy()
 {
-	// By reflection, because the variables belong to the blueprint child rather
-	// than to this class. A native parent cannot name them at compile time, but
-	// it can find them on its own generated class -- and the graph downstream
-	// already knows what to do with them.
-	if (const FStructProperty* Property =
-		FindFProperty<FStructProperty>(GetClass(), HeadRotationVariable))
+	return new FAmandaFaceAnimProxy(this);
+}
+
+void FAmandaFaceAnimProxy::PreUpdate(UAnimInstance* InAnimInstance, float DeltaSeconds)
+{
+	FAnimInstanceProxy::PreUpdate(InAnimInstance, DeltaSeconds);
+
+	// Evaluation runs on a worker thread and must not touch the anim instance,
+	// so everything it needs is copied here, on the game thread.
+	if (const UAmandaFaceAnimInstance* Face = Cast<UAmandaFaceAnimInstance>(InAnimInstance))
 	{
-		if (Property->Struct == TBaseStructure<FRotator>::Get())
+		HeadRotation = Face->PresenceHeadRotation;
+		HeadBone = Face->HeadBone;
+		NeckBone = Face->NeckBone;
+		NeckShare = FMath::Clamp(Face->NeckShare, 0.0f, 1.0f);
+		bApply = Face->bApplyPresence && Face->bApplyHeadRotation && Face->bHasPresence;
+	}
+}
+
+namespace
+{
+	/**
+	 * Turn one bone in component space, leaving its children to follow.
+	 *
+	 * Component space rather than bone space because the head's own axes are
+	 * not the ones a director thinks in -- its rest orientation on this rig
+	 * measures 90 degrees of pitch, so "yaw" applied locally would tilt her
+	 * head sideways. In component space, with the character facing forward,
+	 * yaw/pitch/roll mean what they say.
+	 *
+	 * Only the bones read here are marked as component space, so converting
+	 * back leaves every child's local transform untouched and the whole face
+	 * rides along -- which is what a head turn is.
+	 */
+	/** True only if the bone was found and actually turned. */
+	bool RotateBoneComponentSpace(FCSPose<FCompactPose>& CSPose, const FName& BoneName,
+		const FRotator& Delta)
+	{
+		if (BoneName.IsNone() || Delta.IsNearlyZero())
 		{
-			*Property->ContainerPtrToValuePtr<FRotator>(this) = Rotation;
-			bDrivingHead = true;
+			return false;
 		}
+
+		const FBoneContainer& Bones = CSPose.GetPose().GetBoneContainer();
+		const int32 MeshIndex = Bones.GetPoseBoneIndexForBoneName(BoneName);
+		if (MeshIndex == INDEX_NONE)
+		{
+			return false;
+		}
+
+		const FCompactPoseBoneIndex Index = Bones.MakeCompactPoseIndex(FMeshPoseBoneIndex(MeshIndex));
+		if (Index.GetInt() == INDEX_NONE)
+		{
+			return false;
+		}
+
+		FTransform Transform = CSPose.GetComponentSpaceTransform(Index);
+		Transform.SetRotation(Delta.Quaternion() * Transform.GetRotation());
+		CSPose.SetComponentSpaceTransform(Index, Transform);
+		return true;
+	}
+}
+
+bool FAmandaFaceAnimProxy::Evaluate(FPoseContext& Output)
+{
+	const bool bResult = FAnimInstanceProxy::Evaluate(Output);
+
+	bPosedHead = false;
+	if (!bApply || HeadRotation.IsNearlyZero())
+	{
+		return bResult;
 	}
 
-	// True, not false. The first guess was that this flag lets Live Link claim
-	// the head and should be turned off; it is the other way round -- it gates
-	// whether the graph applies the head rotator at all. With it false the
-	// rotator was written faithfully every frame and read by nobody, which
-	// looked exactly like a locked head.
-	if (const FBoolProperty* Flag =
-		FindFProperty<FBoolProperty>(GetClass(), HeadFromLiveLinkVariable))
+	const FRotator NeckPart = HeadRotation * NeckShare;
+	const FRotator HeadPart = HeadRotation * (1.0f - NeckShare);
+
+	FCSPose<FCompactPose> CSPose;
+	CSPose.InitPose(Output.Pose);
+	RotateBoneComponentSpace(CSPose, NeckBone, NeckPart);
+	// The head is the one that has to land. Reporting success because the code
+	// ran, rather than because a bone moved, is how a missing bone name reads
+	// as "something downstream is overwriting me" -- which cost an hour once.
+	bPosedHead = RotateBoneComponentSpace(CSPose, HeadBone, HeadPart);
+	FCSPose<FCompactPose>::ConvertComponentPosesToLocalPoses(MoveTemp(CSPose), Output.Pose);
+
+	return bResult;
+}
+
+void FAmandaFaceAnimProxy::PostUpdate(UAnimInstance* InAnimInstance) const
+{
+	FAnimInstanceProxy::PostUpdate(InAnimInstance);
+
+	if (UAmandaFaceAnimInstance* Face = Cast<UAmandaFaceAnimInstance>(InAnimInstance))
 	{
-		Flag->SetPropertyValue_InContainer(this, bEnableHeadRotationFlag);
+		Face->bDrivingHead = bPosedHead;
 	}
 }
 
