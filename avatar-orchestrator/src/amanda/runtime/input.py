@@ -31,6 +31,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
+from amanda.audio.echo import EchoCanceller
 from amanda.audio.microphone import Microphone
 from amanda.audio.stt import SpeechRecognizer, Transcript
 from amanda.audio.vad import BargeInDetector, Endpointer, Utterance
@@ -209,6 +210,11 @@ class VoiceInput:
     #: with a higher bar, for a room noisy enough that the first one is not
     #: enough.
     min_voiced_ms: int = 400
+
+    #: Takes her own voice out of each frame before anything listens to it --
+    #: endpointing, barge-in and the wake word all hear the cleaned audio.
+    #: None on a machine without one, which on headphones costs nothing.
+    echo: EchoCanceller | None = None
 
     #: Start transcribing once the user has been quiet this long, instead of
     #: waiting for the endpointer's full `silence_to_end`. If the pause does
@@ -404,6 +410,8 @@ class VoiceInput:
         try:
             async with self.microphone.listen() as frames:
                 async for frame in frames:
+                    if self.echo is not None:
+                        frame = self.echo.process(frame)
                     if (utterance := self.endpointer.feed(frame)) is not None:
                         self._utterances.put_nowait((utterance, self._speculation))
                         self._speculation = None

@@ -26,6 +26,10 @@ audio = [
     "piper-tts>=1.8",
     # Keyless wake word detection. Downloads its model on first use.
     "openwakeword>=0.6",
+    # WebRTC's echo canceller (AEC3), for speakers with a desk microphone.
+    # The whole real-time SDK for one module, but the only packaging of AEC3
+    # with Windows wheels for this Python.
+    "livekit>=1.1",
 ]
 dev = [
     "pytest>=8.0",

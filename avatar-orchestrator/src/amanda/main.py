@@ -23,6 +23,7 @@ import logging
 import uuid
 
 from amanda.audio import devices
+from amanda.audio.echo import build as build_echo
 from amanda.audio.engines import ENGINES, build, describe
 from amanda.audio.microphone import Microphone, MicrophoneError
 from amanda.audio.sink import DeviceSink, MonitorSink, NullSink
@@ -100,6 +101,10 @@ class Session:
         #: Held for a whole turn and for a device switch, so a switch never
         #: restarts PortAudio under an open stream.
         self.audio_lock = asyncio.Lock()
+        #: Takes her voice back out of the microphone, fed by whatever plays to
+        #: the listening device. Only for spoken input -- typed input has no
+        #: microphone to clean. See audio/echo.py.
+        self.echo = build_echo(enabled=args.voice and not args.no_echo_cancel)
         self.input: ConversationInput = self._build_input()
         self.session_id = f"s_{uuid.uuid4().hex[:8]}"
         self.telemetry = TurnLog.from_config(
@@ -126,6 +131,7 @@ class Session:
             recognizer=build_recognizer(self.args.stt),
             wake=build_wake(self.args.wake),
             awake_seconds=float(wake_settings().get("awake_seconds", 45.0)),
+            echo=self.echo,
         )
 
     def _choose_route(self, need_microphone: bool | None = None) -> devices.AudioRoute | None:
@@ -185,8 +191,11 @@ class Session:
         route = self.route
         if route is None:
             return DeviceSink(device=self.args.device)
+        # What plays to the listening device is what the microphone can hear,
+        # so it is the echo canceller's reference. The cable is not in the room.
+        played = self.echo.played if self.echo is not None else None
         if route.cable is None:
-            return DeviceSink(device=route.listen.index)
+            return DeviceSink(device=route.listen.index, on_played=played)
         sink = DeviceSink(device=route.cable.index)
         if self.args.no_monitor:
             return sink
@@ -194,7 +203,7 @@ class Session:
         # back to land with the mouth. See MonitorSink.
         return MonitorSink(
             primary=sink,
-            monitor=DeviceSink(device=route.listen.index),
+            monitor=DeviceSink(device=route.listen.index, on_played=played),
             delay_ms=self.args.monitor_delay,
         )
 
@@ -207,6 +216,8 @@ class Session:
             )
             print(f"performance director: {self.director.name}")
             print(self.describe_route())
+            if self.echo is not None:
+                print(f"  echo cancellation: {self.echo.name}")
 
             warm = getattr(self.synthesizer, "warm", None)
             if warm is not None:
@@ -568,6 +579,11 @@ def main() -> int:
     parser.add_argument("--stt", help="whisper, scripted, or auto (the default)")
     parser.add_argument(
         "--wake", help="openwakeword, porcupine, or none to listen to everything"
+    )
+    parser.add_argument(
+        "--no-echo-cancel",
+        action="store_true",
+        help="do not take her own voice out of the microphone (A/B, or headphones only)",
     )
     parser.add_argument(
         "--director",

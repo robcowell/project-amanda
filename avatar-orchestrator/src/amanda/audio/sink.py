@@ -18,7 +18,7 @@ import asyncio
 import contextlib
 import logging
 import threading
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
@@ -211,6 +211,10 @@ class DeviceSink:
     #: that, and on 2026-09-11 it corrupted the heap (0xc0000374) the second
     #: time her own echo interrupted her.
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    #: Told each block as it goes to the device, from the writer thread: the
+    #: echo canceller's reference, timed as the room will hear it. Only on the
+    #: sink someone listens to -- the cable is not in the room.
+    on_played: Callable[[bytes, int], None] | None = field(default=None, repr=False)
 
     @property
     def underruns(self) -> int:
@@ -262,6 +266,8 @@ class DeviceSink:
                 underflowed = bool(self._stream.write(block)) or underflowed
                 # What was actually written, so the fade starts from it.
                 self._tail = block[-SAMPLE_WIDTH:]
+            if self.on_played is not None:
+                self.on_played(block, self._sample_rate)
         return underflowed
 
     async def drain(self) -> None:
@@ -297,6 +303,8 @@ class DeviceSink:
             if ramp:
                 self._stream.write(ramp)
             self._stream.stop()
+        if ramp and self.on_played is not None:
+            self.on_played(ramp, self._sample_rate)
 
     async def close(self) -> None:
         if self._stream is None:
