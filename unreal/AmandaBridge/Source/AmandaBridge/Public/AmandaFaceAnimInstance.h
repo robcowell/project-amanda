@@ -5,15 +5,22 @@
 // animation graph -- cannot be automated: graphs are authored by hand in the
 // editor, and Python cannot reach them.
 //
-// This is the route that can. `UAnimInstance::AddCurveValue` sets a named curve
-// on the evaluated pose directly, so a native parent class for the face's
-// animation blueprint can push presence into the rig every frame without a
-// single node being wired. `ABP_AmandaFace` is reparented onto this class, and
-// keeps every graph Epic shipped in it.
+// This is the route that can: a native parent class for the face's animation
+// blueprint, whose proxy writes presence into the *evaluated pose's* curves,
+// after the Live Link graph and before the face's Control Rig reads them.
+// `ABP_AmandaFace` is reparented onto this class, and keeps every graph Epic
+// shipped in it.
 //
-// It layers *after* the Live Link pose, because NativeUpdateAnimation runs
-// before the graph evaluates and the curve values it sets are applied to the
-// result. Presence never writes a jaw or lip curve: the mouth is the speech
+// Not through `UAnimInstance::AddCurveValue`, which was the first version and
+// looked right for two days. It writes the instance's curve table, which
+// `UpdateCurvesToEvaluationContext` resets and refills from the graph's output
+// after every evaluation -- so presence's blinks and glances were wiped each
+// frame and never reached the rig. Every blink seen before 2026-09-11 was the
+// speech solver's own; her eyes never followed presence's gaze. Writing into
+// the pose also lets presence own the blink outright: setting eyeBlink there
+// replaces the solver's value rather than competing with it.
+//
+// Presence never writes a jaw or lip curve: the mouth is the speech
 // solver's. The one exception is FAmandaCurveFloor below, which does not add
 // a shape of its own -- it removes the solver's resting offset from a few
 // mouth curves, so the mouth closes when she is silent.
@@ -172,6 +179,11 @@ private:
 	/** How many floored curves were present and remapped last evaluation. */
 	mutable int32 RestFloorCurvesFound = 0;
 
+	/** Presence's curve values, copied from the instance on the game thread. */
+	TArray<TPair<FName, float>> PresenceCurves;
+	/** How many presence curves were written into the pose last evaluation. */
+	mutable int32 PresenceCurvesWritten = 0;
+
 	friend class UAmandaFaceAnimInstance;
 };
 
@@ -220,11 +232,40 @@ public:
 	/**
 	 * Degrees of eye aim that count as fully looking that way.
 	 *
-	 * The gaze scheduler works in degrees; the rig's look curves are 0..1. A
-	 * MetaHuman eye travels about fifteen degrees before it looks strained.
+	 * The gaze scheduler works in degrees; the rig's look curves are 0..1, so
+	 * this has to be the angle the rig actually turns the eye at a curve of 1 --
+	 * otherwise every glance and saccade is scaled by the error. It was a guess
+	 * of 15, which nobody noticed while the curves never reached the rig; once
+	 * they did, glances overshot to 44 degrees.
+	 *
+	 * Measured 2026-09-11 with EyeLookOverride, head motion frozen and each eye
+	 * read relative to the head bone: full left/right turned the eye 42 degrees
+	 * outward and 38 inward, half gave exactly half, and the response was
+	 * instant. 40 is the average. Up and down differ, so they have their own.
 	 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Amanda|Presence")
-	float EyeRangeDegrees = 15.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Amanda|Presence")
+	float EyeRangeDegrees = 40.0f;
+
+	/** Degrees at a full eyeLookUp curve. Measured: 30. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Amanda|Presence")
+	float EyeUpRangeDegrees = 30.0f;
+
+	/** Degrees at a full eyeLookDown curve. Measured: 40. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Amanda|Presence")
+	float EyeDownRangeDegrees = 40.0f;
+
+	/**
+	 * Pin the eye-look curves to fixed values instead of presence's gaze.
+	 *
+	 * For calibration: X is left (-1) to right (+1), Y is down (-1) to up (+1),
+	 * in curve units. Hold each extreme, read the eye bone, and the angle at 1
+	 * is what EyeRangeDegrees should be.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Amanda|Presence")
+	bool bOverrideEyeLook = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Amanda|Presence")
+	FVector2D EyeLookOverride = FVector2D::ZeroVector;
 
 	/**
 	 * Degrees of head rotation that count as a full turn or tilt.
@@ -319,14 +360,22 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "Amanda|Speech")
 	int32 RestFloorCurvesFound = 0;
 
+	/** How many presence curves reached the evaluated pose. Diagnostics. */
+	UPROPERTY(BlueprintReadOnly, Category = "Amanda|Presence")
+	int32 PresenceCurvesWritten = 0;
+
 protected:
 	virtual FAnimInstanceProxy* CreateAnimInstanceProxy() override;
 
 private:
+	/** Queue a value for each named curve, for the proxy to write after the graph. */
 	void ApplyToCurves(const TArray<FName>& Names, float Value);
 
 	UPROPERTY(Transient)
 	TObjectPtr<UAmandaPresenceComponent> Presence = nullptr;
+
+	/** This update's presence curves, handed to the proxy in its PreUpdate. */
+	TArray<TPair<FName, float>> PendingCurves;
 
 	friend struct FAmandaFaceAnimProxy;
 };

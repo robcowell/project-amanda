@@ -303,8 +303,26 @@ machine.
   was done. It cost a day on the head and showed up plainly only when the
   rest-floor remap reported finding 0 of 7 curves that were visibly there --
   which is the reason every such change reports what it touched.
-- **Curves are input to that rig.** Blinks and gaze work from the main graph
-  because the rig consumes those curves, and so does the rest-floor remap.
+- **Curves are input to that rig -- but only curves in the evaluated pose.**
+  Presence wrote blink and eye-look through `UAnimInstance::AddCurveValue` for
+  two days, and none of it ever reached the rig: that writes the instance's
+  curve table, which `UpdateCurvesToEvaluationContext` resets and refills from
+  the graph's output after every evaluation. Every blink seen before
+  2026-09-11 was the speech solver's own (it outputs `CTRL_*_eye_blink`), and
+  her eyes never followed presence's gaze -- the eye-look curves read 0.00 for
+  a whole minute while presence swept 15-23 degrees. The proxy now writes
+  presence's curves into the pose after the graph, beside the rest-floor
+  remap. Setting eyeBlink there replaces the solver's blink, so presence alone
+  sets the rate: measured, the rig blinks exactly as often as presence does.
+- **The rig's eye range is 40 degrees sideways, 30 up, 40 down.** Measured
+  with `EyeLookOverride` pinning the curves, head motion frozen, each eye read
+  relative to the head bone: full left/right 42 outward and 38 inward, half
+  exactly half, response instant. `EyeRangeDegrees` had been a guess of 15, so
+  once the curves arrived every glance and saccade was magnified ~2.7x --
+  glances to 44 degrees, 1.4-degree micro-saccades as 4-degree darts. A first
+  calibration read the eyes in component space and got half-left 3 degrees
+  against full-left 33: the head's own motion was in the numbers. Measure an
+  eye relative to its head.
 - **The solver's `Lookahead` is what closes the lips.** At the default 80ms, p,
   b and m never closed; at 240ms (the maximum) they do, judged by Rob's eye on
   2026-09-11. Plausibly because those closures happen *before* the burst that

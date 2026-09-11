@@ -25,6 +25,10 @@ void UAmandaFaceAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 {
 	Super::NativeUpdateAnimation(DeltaSeconds);
 
+	// Rebuilt every update; an early return below leaves it empty, which the
+	// proxy reads as "presence says nothing this frame".
+	PendingCurves.Reset();
+
 	if (Presence == nullptr)
 	{
 		// The anim instance is also created for the asset preview, where there
@@ -58,8 +62,16 @@ void UAmandaFaceAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 
 	// Eye aim arrives as signed degrees and the rig wants four one-directional
 	// curves, each 0..1.
-	const float Yaw = FMath::Clamp(Face.EyeYaw / FMath::Max(EyeRangeDegrees, 1.0f), -1.0f, 1.0f);
-	const float Pitch = FMath::Clamp(Face.EyePitch / FMath::Max(EyeRangeDegrees, 1.0f), -1.0f, 1.0f);
+	// Degrees to curve units, at the rig's measured range for each direction --
+	// up travels 30 degrees at a full curve, down 40, so they divide separately.
+	const float PitchRange = Face.EyePitch >= 0.0f ? EyeUpRangeDegrees : EyeDownRangeDegrees;
+	float Yaw = FMath::Clamp(Face.EyeYaw / FMath::Max(EyeRangeDegrees, 1.0f), -1.0f, 1.0f);
+	float Pitch = FMath::Clamp(Face.EyePitch / FMath::Max(PitchRange, 1.0f), -1.0f, 1.0f);
+	if (bOverrideEyeLook)
+	{
+		Yaw = FMath::Clamp((float)EyeLookOverride.X, -1.0f, 1.0f);
+		Pitch = FMath::Clamp((float)EyeLookOverride.Y, -1.0f, 1.0f);
+	}
 
 	ApplyToCurves(CurveNames.LookLeft, FMath::Max(0.0f, -Yaw));
 	ApplyToCurves(CurveNames.LookRight, FMath::Max(0.0f, Yaw));
@@ -104,6 +116,11 @@ void FAmandaFaceAnimProxy::PreUpdate(UAnimInstance* InAnimInstance, float DeltaS
 		NeckBone = Face->NeckBone;
 		NeckShare = FMath::Clamp(Face->NeckShare, 0.0f, 1.0f);
 		bApply = Face->bApplyPresence && Face->bApplyHeadRotation && Face->bHasPresence;
+
+		// Computed in the instance's NativeUpdateAnimation, which runs after this
+		// PreUpdate -- so these are last update's values, one frame behind. The
+		// head rotation above has the same lag; at 60 fps it is 16ms, unseen.
+		PresenceCurves = Face->PendingCurves;
 
 		// Independent of presence: the floors belong to the solver's output, and
 		// a face with no presence component still speaks.
@@ -189,6 +206,15 @@ bool FAmandaFaceAnimProxy::Evaluate_WithRoot(FPoseContext& Output, FAnimNode_Bas
 
 	RemoveRestFloors(Output.Curve);
 
+	// Presence into the pose, after the graph, so the rig reads it. Set, not
+	// add: for the blink this replaces the speech solver's own blink, so the
+	// blink rate is presence's alone rather than the two stacked.
+	for (const TPair<FName, float>& Curve : PresenceCurves)
+	{
+		Output.Curve.Set(Curve.Key, Curve.Value);
+	}
+	PresenceCurvesWritten = PresenceCurves.Num();
+
 	bPosedHead = false;
 	if (!bApply || HeadRotation.IsNearlyZero())
 	{
@@ -218,6 +244,7 @@ void FAmandaFaceAnimProxy::PostUpdate(UAnimInstance* InAnimInstance) const
 	{
 		Face->bDrivingHead = bPosedHead;
 		Face->RestFloorCurvesFound = RestFloorCurvesFound;
+		Face->PresenceCurvesWritten = PresenceCurvesWritten;
 	}
 }
 
@@ -227,7 +254,7 @@ void UAmandaFaceAnimInstance::ApplyToCurves(const TArray<FName>& Names, float Va
 	{
 		if (!Name.IsNone())
 		{
-			AddCurveValue(Name, Value);
+			PendingCurves.Emplace(Name, Value);
 		}
 	}
 }
