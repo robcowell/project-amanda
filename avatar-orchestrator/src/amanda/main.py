@@ -24,7 +24,7 @@ import uuid
 
 from amanda.audio.engines import ENGINES, build, describe
 from amanda.audio.microphone import Microphone
-from amanda.audio.sink import DeviceSink, NullSink
+from amanda.audio.sink import DeviceSink, MonitorSink, NullSink
 from amanda.audio.speech import SpeechSession
 from amanda.audio.stt import build as build_recognizer
 from amanda.audio.tts import SynthesisError
@@ -129,7 +129,16 @@ class Session:
             # Paced, so an interruption still lands partway through rather than
             # after an utterance that "finished" the moment it was synthesised.
             return NullSink(realtime=True)
-        return DeviceSink(device=self.args.device)
+        sink = DeviceSink(device=self.args.device)
+        if self.args.monitor:
+            # The cable drives the face; the monitor is what a person hears,
+            # held back to land with the mouth. See MonitorSink.
+            return MonitorSink(
+                primary=sink,
+                monitor=DeviceSink(device=self.args.monitor),
+                delay_ms=self.args.monitor_delay,
+            )
+        return sink
 
     async def run(self) -> int:
         async with self.bridge:
@@ -440,6 +449,17 @@ def main() -> int:
     )
     parser.add_argument("--voice-id", help="engine-specific voice id or model path")
     parser.add_argument("--device", help="output device, by index or name fragment")
+    parser.add_argument(
+        "--monitor", help="also play to this device, delayed to land with the face"
+    )
+    parser.add_argument(
+        # Measured by eye on 2026-09-11 against the face at a solver lookahead of
+        # 240ms: 600 sounded early, 700 late, 650 best. It tracks the face's
+        # whole lag, so re-measure whenever the lookahead changes.
+        "--monitor-delay", type=int, default=650, metavar="MS",
+        help="how far the monitor lags the face's audio device, so the two land "
+        "together (default: 650, measured at a solver lookahead of 240ms)",
+    )
     parser.add_argument("--no-audio", action="store_true", help="run silently")
     parser.add_argument(
         "--no-telemetry", action="store_true", help="do not record turns to disk"

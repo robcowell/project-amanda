@@ -9,12 +9,16 @@ interruption sounds like.
     python3 tools/speak.py "It rained most of the morning."
     python3 tools/speak.py "..." --engine espeak-ng
     python3 tools/speak.py "..." --device "cable input"
+    python3 tools/speak.py "..." --device "cable input" --monitor focusrite
     python3 tools/speak.py "..." --interrupt-after 700
     python3 tools/speak.py "..." --wav /tmp/phrase.wav
 
 On the Windows box the useful form is `--device "cable input"`: that puts the
 avatar's voice into the virtual cable Unreal reads as a microphone, rather than
-out of the speakers.
+out of the speakers. Add `--monitor` to hear it as well, delayed by
+`--monitor-delay` so the sound lands with the face rather than ahead of it --
+and turn off Windows' "Listen to this device" on the cable first, or you will
+hear it twice.
 """
 
 from __future__ import annotations
@@ -34,6 +38,7 @@ from amanda.audio.sink import (  # noqa: E402
     RAW_PLAYERS,
     CommandSink,
     DeviceSink,
+    MonitorSink,
     NullSink,
     list_output_devices,
 )
@@ -61,9 +66,14 @@ def build_sink(args: argparse.Namespace):
         # Paced when demonstrating an interruption: writing to memory at full
         # speed would finish the utterance before there was anything to cut.
         return NullSink(realtime=bool(args.interrupt_after))
-    if args.player:
-        return CommandSink(argv=RAW_PLAYERS[args.player])
-    return DeviceSink(device=args.device)
+    sink = CommandSink(argv=RAW_PLAYERS[args.player]) if args.player else DeviceSink(
+        device=args.device
+    )
+    if args.monitor:
+        return MonitorSink(
+            primary=sink, monitor=DeviceSink(device=args.monitor), delay_ms=args.monitor_delay
+        )
+    return sink
 
 
 async def main_async(args: argparse.Namespace) -> int:
@@ -130,6 +140,17 @@ def main() -> int:
     parser.add_argument("--argv", nargs="+", help="a full engine command, overriding --engine")
     parser.add_argument("--raw", action="store_true", help="the engine emits raw PCM, not WAV")
     parser.add_argument("--device", help="output device, by index or name fragment")
+    parser.add_argument(
+        "--monitor", help="also play to this device, so the cable can be heard"
+    )
+    parser.add_argument(
+        # Measured by eye on 2026-09-11 against the face at a solver lookahead of
+        # 240ms: 600 sounded early, 700 late, 650 best. It tracks the face's
+        # whole lag, so re-measure whenever the lookahead changes.
+        "--monitor-delay", type=int, default=650, metavar="MS",
+        help="how far the monitor lags the face's audio device, so the two land "
+        "together (default: 650, measured at a solver lookahead of 240ms)",
+    )
     parser.add_argument("--player", choices=sorted(RAW_PLAYERS), help="pipe to a player instead")
     parser.add_argument("--wav", help="write to a file instead of playing")
     parser.add_argument("--voice", help="engine-specific voice id or model path")

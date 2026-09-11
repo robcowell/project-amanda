@@ -271,6 +271,131 @@ class DeviceSink:
 
 
 # --------------------------------------------------------------------------- #
+# Monitor
+# --------------------------------------------------------------------------- #
+
+
+@dataclass
+class MonitorSink:
+    """The same audio to a second device, later -- so it arrives with the face.
+
+    The face is solved from the virtual cable and runs behind it by the
+    solver's lookahead plus its pipeline. At a lookahead of 240ms, the setting
+    that finally made the lips close on p, b and m, that gap is plainly visible:
+    heard straight off the cable (Windows' "Listen to this device"), the sound
+    leads the mouth. Broadcast solves the same problem the same way -- delay the
+    sound to meet the picture.
+
+    `primary` is the cable. It gets every chunk immediately and paces the whole
+    pipeline exactly as it would on its own. `monitor` is what a person hears.
+    It gets each chunk `delay_ms` after `primary` did, from a task of its own,
+    so a slow or failing monitor can never hold up what drives the face.
+
+    The delay is anchored to when each chunk was written rather than added as
+    silence when the device opens. Silence at open would be caught up by the
+    first pause, and everything after it would play in step with the cable --
+    sync that works for one sentence and quietly stops.
+    """
+
+    primary: AudioSink
+    monitor: AudioSink
+    delay_ms: int = 0
+
+    _queue: asyncio.Queue[tuple[float, bytes]] | None = field(default=None, repr=False)
+    _pump: asyncio.Task[None] | None = field(default=None, repr=False)
+    _stopped: bool = False
+    _monitor_failed: bool = False
+
+    def __post_init__(self) -> None:
+        if self.delay_ms < 0:
+            raise ValueError(f"delay_ms must not be negative, got {self.delay_ms}")
+
+    @property
+    def underruns(self) -> int:
+        # Either device running dry is a gap someone notices: the monitor in
+        # the ear, the cable on the mouth.
+        return self.primary.underruns + self.monitor.underruns
+
+    async def open(self, sample_rate: int) -> None:
+        self._stopped = False
+        self._monitor_failed = False
+        await asyncio.gather(self.primary.open(sample_rate), self.monitor.open(sample_rate))
+        self._queue = asyncio.Queue()
+        self._pump = asyncio.create_task(self._run_monitor(), name="monitor-sink")
+
+    async def write(self, pcm: bytes) -> None:
+        if self._stopped or not pcm or self._queue is None:
+            return
+        self._queue.put_nowait((asyncio.get_running_loop().time(), pcm))
+        await self.primary.write(pcm)
+
+    async def drain(self) -> None:
+        # The monitor is behind by design, so "finished" means finished there
+        # too. Returning when the cable finished would let the caller close the
+        # sink with the last `delay_ms` of every utterance still unheard.
+        await self.primary.drain()
+        if self._queue is not None:
+            await self._queue.join()
+        await self.monitor.drain()
+
+    async def stop(self, fade_ms: int = 80) -> None:
+        """Stop both now, including what the monitor had not yet played.
+
+        Dropping the monitor's backlog means a barge-in is heard to land as
+        promptly as it would without a monitor, rather than `delay_ms` later.
+        The cost is that the listener never hears the last `delay_ms` of an
+        interrupted sentence, which is the correct thing to lose.
+        """
+        if self._stopped:
+            return
+        self._stopped = True
+        self._discard_backlog()
+        if self._pump is not None:
+            self._pump.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._pump
+        await asyncio.gather(self.primary.stop(fade_ms), self.monitor.stop(fade_ms))
+
+    async def close(self) -> None:
+        if self._pump is not None and not self._pump.done():
+            self._pump.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._pump
+        self._pump = None
+        await asyncio.gather(self.primary.close(), self.monitor.close())
+
+    def _discard_backlog(self) -> None:
+        if self._queue is None:
+            return
+        while not self._queue.empty():
+            self._queue.get_nowait()
+            self._queue.task_done()
+
+    async def _run_monitor(self) -> None:
+        assert self._queue is not None
+        loop = asyncio.get_running_loop()
+        delay = self.delay_ms / 1000
+        while True:
+            written_at, pcm = await self._queue.get()
+            try:
+                wait = written_at + delay - loop.time()
+                if wait > 0:
+                    await asyncio.sleep(wait)
+                if not self._monitor_failed:
+                    await self.monitor.write(pcm)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - the cable must keep going
+                # Losing the monitor is losing a convenience; losing the cable
+                # is losing the face. Say so once and keep draining the queue,
+                # so drain() still returns.
+                self._monitor_failed = True
+                log.warning("monitor output failed, continuing without it: %s", exc)
+            finally:
+                self._queue.task_done()
+
+
+# --------------------------------------------------------------------------- #
 # Command
 # --------------------------------------------------------------------------- #
 

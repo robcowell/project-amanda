@@ -229,6 +229,15 @@ Each of these cost something to learn.
 - **Warm before opening the microphone.** A capture stream running with
   nothing subscribed discards what it hears, so loading a model first would
   leave a cold start deaf for as long as the load took, without saying so.
+- **What the user hears waits for the face.** The cable gets the voice
+  immediately and drives the solver; `--monitor` plays a second copy to the
+  speakers `--monitor-delay` later so the two land together. Hearing the cable
+  directly (Windows' "Listen to this device") puts the sound ~650ms ahead of the
+  mouth -- turn it off when using `--monitor`, or it is heard twice.
+- **The monitor delay is anchored per chunk, not added as silence at open.**
+  Silence at open is caught up by the first pause and sync silently stops after
+  one sentence. And a barge-in drops the monitor's unplayed backlog, so an
+  interruption is heard to land promptly rather than 650ms late.
 - **Filter noise on voiced audio, not buffer length.** An utterance always
   carries its pre-roll and the silence that ended it, so a 0.4s cough arrives
   as a 1.3s buffer. `Utterance.voiced_ms` is the number to threshold.
@@ -277,10 +286,25 @@ machine.
   meaning the bone was found and turned in the graph's output, while the
   component's head bone stays bit-identical to the reference pose. Anything
   that has to survive belongs on the far side of that rig, in a post-process
-  blueprint. **Written but not yet proven** (`Scripts/bind_face_post.py`).
+  blueprint. **Parked, unresolved.** `Scripts/bind_face_post.py` binds a
+  reparented copy of that post-process blueprint to the face mesh; tried once
+  on 2026-09-11 and the head stayed frozen, but the probe read the main
+  instance, not the post-process one, so which half failed is unknown. The
+  face mesh is back on Epic's `ABP_Face_PostProcess`.
 - **Curves are input to that rig; bone poses are output.** Blinks and gaze work
   from the main graph because the rig consumes those curves. That asymmetry is
   why the two halves live in two blueprints.
+- **The solver's `Lookahead` is what closes the lips.** At the default 80ms, p,
+  b and m never closed; at 240ms (the maximum) they do, judged by Rob's eye on
+  2026-09-11. Plausibly because those closures happen *before* the burst that
+  identifies them, and 80ms is too short to have heard it. Set and persisted by
+  `Scripts/set_lookahead.py`, which rebuilds the Live Link preset.
+- **The face runs about 650ms behind the audio at that lookahead** -- found by
+  ear and eye with `--monitor-delay`: 600 early, 700 late, 650 best. Only 240ms
+  of that is lookahead. **The other ~400ms is unaccounted for** (capture buffer,
+  Live Link frame buffering, the solver's pipeline, the editor's frame rate)
+  and all of it is now response time, because the sound the user hears waits
+  for the face. It is the largest unexplained term left in a turn.
 - **UE 5.8.2 accepted MSVC 14.50 (Visual Studio 2026)** and the 10.0.26100 SDK.
   UE 5.7 documents 14.44 as preferred, so a VS 2022 install had been budgeted
   for and turned out to be unnecessary.
