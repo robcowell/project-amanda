@@ -29,6 +29,7 @@ from amanda.audio.sink import DeviceSink, MonitorSink, NullSink
 from amanda.audio.speech import SpeechSession
 from amanda.audio.stt import build as build_recognizer
 from amanda.audio.tts import SynthesisError
+from amanda.audio.wake import WakeWordError
 from amanda.audio.wake import build as build_wake
 from amanda.avatar.protocol import CancelReason, SessionEnded, SessionStarted, UserDetected
 from amanda.avatar.websocket import DEFAULT_HOST, DEFAULT_PORT, AvatarBridge
@@ -640,6 +641,11 @@ def main() -> int:
         return 2
     except devices.DeviceError as exc:
         # Same: no microphone, or a choice that would have her hear herself.
+        print(f"{exc}")
+        return 2
+    except WakeWordError as exc:
+        # Same again: a keyword that does not exist, a model that would not
+        # download, a missing key -- each message says what to change.
         print(f"{exc}")
         return 2
     return 0

@@ -12,8 +12,9 @@ always-listening behaviour, and the choice lives in config.
 
 Two backends, because they trade differently:
 
-  * **openWakeWord** needs no account and ships its models. Its vocabulary is
-    whatever has been pre-trained, and "Amanda" is not among it.
+  * **openWakeWord** needs no account, and fetches its models from its own
+    GitHub release the first time one is used. Its vocabulary is whatever has
+    been pre-trained, and "Amanda" is not among it.
   * **Porcupine** needs a free Picovoice account and an access key, and in
     exchange its console will generate a keyword for any phrase — which is the
     only route to a wake word that is actually the character's name.
@@ -23,6 +24,7 @@ The interface is the same either way, so switching is a config change.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import warnings
 from dataclasses import dataclass, field
@@ -108,16 +110,17 @@ DEFAULT_COOLDOWN_MS = 1500
 class OpenWakeWordDetector:
     """Keyless detection using openWakeWord's pre-trained models.
 
-    Its vocabulary is fixed: alexa, hey_jarvis, hey_marvin, hey_mycroft. None of
-    them is "Amanda", so whichever is configured is a placeholder — see the
-    module docstring for the route to a real one.
+    Its vocabulary is fixed -- as of 0.6: alexa, hey_jarvis, hey_mycroft,
+    hey_rhasspy. `hey_marvin`, this class's first placeholder, went with 0.5.
+    None of them is "Amanda", so whichever is configured is a placeholder --
+    see the module docstring for the route to a real one.
 
     The model's streaming context carries across calls and is meant to: a burst
     of loud non-speech immediately before the wake word measurably suppresses
     it, which is worth knowing if the room has music in it.
     """
 
-    keyword: str = "hey_marvin"
+    keyword: str = "hey_jarvis"
     threshold: float = DEFAULT_THRESHOLD
     cooldown_ms: int = DEFAULT_COOLDOWN_MS
 
@@ -143,8 +146,23 @@ class OpenWakeWordDetector:
 
         models = Path(openwakeword.__file__).parent / "resources" / "models"
         matches = sorted(models.glob(f"{self.keyword}*.onnx"))
+        known = getattr(openwakeword, "MODELS", {})
+        if not matches and self.keyword in known:
+            # Since 0.5 the models are not in the package: the library fetches
+            # them, with the two feature models every keyword needs, from its
+            # GitHub release into the folder above. Once per install.
+            from openwakeword.utils import download_models
+
+            log.info("downloading openWakeWord model %s (once)", self.keyword)
+            try:
+                await asyncio.to_thread(download_models, [self.keyword])
+            except Exception as exc:  # noqa: BLE001 - surfaced with context
+                raise WakeWordError(
+                    f"could not download the openWakeWord model {self.keyword!r}: {exc}"
+                ) from exc
+            matches = sorted(models.glob(f"{self.keyword}*.onnx"))
         if not matches:
-            available = ", ".join(
+            available = ", ".join(sorted(known)) or ", ".join(
                 path.stem.rsplit("_v", 1)[0]
                 for path in sorted(models.glob("*.onnx"))
                 if not any(part in path.stem for part in ("melspectrogram", "embedding", "vad"))
@@ -157,7 +175,9 @@ class OpenWakeWordDetector:
             # It asks for a CUDA provider on every construction and warns when
             # there isn't one, which there never is here.
             warnings.simplefilter("ignore", UserWarning)
-            self._model = Model(wakeword_model_paths=[str(matches[0])])
+            # onnx explicitly: the default is tflite, which has no Windows
+            # build, and 0.6 only falls back to onnx after failing to import it.
+            self._model = Model(wakeword_models=[str(matches[0])], inference_framework="onnx")
         log.info("wake word ready: %s", matches[0].stem)
 
     def reset(self) -> None:

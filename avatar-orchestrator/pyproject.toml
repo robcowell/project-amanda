@@ -24,8 +24,8 @@ audio = [
     "faster-whisper>=1.2",
     # Local neural speech synthesis.
     "piper-tts>=1.8",
-    # Keyless wake word detection. Ships its own models.
-    "openwakeword>=0.4",
+    # Keyless wake word detection. Downloads its model on first use.
+    "openwakeword>=0.6",
 ]
 dev = [
     "pytest>=8.0",

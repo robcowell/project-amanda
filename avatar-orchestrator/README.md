@@ -534,11 +534,14 @@ python3 -m amanda.main --voice              # gated (the default)
 python3 -m amanda.main --voice --wake none  # listen to everything
 ```
 
-**The shipped keyword is a placeholder.** openWakeWord needs no account and
-ships its models, but its vocabulary is fixed — `alexa`, `hey_jarvis`,
-`hey_marvin`, `hey_mycroft` — and none of them is the character's name. For a
-real "Amanda": generate a `.ppn` in the Picovoice console (free for personal
-use), set `wake.backend` to `porcupine` and put the path in `wake.keyword`.
+**The shipped keyword is a placeholder: "hey Jarvis".** openWakeWord needs no
+account, and downloads the model from its GitHub release the first time it is
+used (since 0.5 the package no longer contains them). Its vocabulary is fixed —
+as of 0.6 `alexa`, `hey_jarvis`, `hey_mycroft`, `hey_rhasspy`; `hey_marvin`,
+the first placeholder here, went with 0.5 — and none of them is the
+character's name. For a real "Amanda": generate a `.ppn` in the Picovoice
+console (free for personal use), set `wake.backend` to `porcupine` and put the
+path in `wake.keyword`.
 
 It is needed **once**, not before every sentence — each turn holds the
 conversation open for `awake_seconds`. Being made to say it every time is what
@@ -546,9 +549,12 @@ makes an assistant feel like a vending machine rather than someone in the room.
 While asleep the renderer is put in IDLE, so the face settles and stops
 tracking rather than merely going quiet.
 
-Measured: the wake phrase scored 0.854 and an ordinary sentence 0.000, and
-detection costs 0.4–1.0 ms per 32 ms frame — about 2% of a core to run
-continuously.
+Measured for `hey_jarvis` against Piper, three runs each: the wake phrase
+scored 0.993–0.999, "Hey, are you there?" at most 0.015, "Hey Marvin." and an
+ordinary sentence 0.000. Measure with a second of silence *after* the phrase:
+the score peaks just after the word ends, and a clip that stops dead on the
+last syllable scored 0.47. Detection costs 0.4–1.0 ms per 32 ms frame — about
+2% of a core to run continuously (measured on the laptop, for `hey_marvin`).
 
 Two things about openWakeWord worth knowing. Its `Model.reset()` clears a
 prediction buffer its scoring depends on, leaving it **deaf for ~2.4 seconds**;

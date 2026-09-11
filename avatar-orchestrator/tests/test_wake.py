@@ -167,8 +167,11 @@ async def test_the_real_phrase_wakes_it_and_only_once():
     detector = build("openwakeword")
     await detector.warm()
 
-    pcm = b"".join([chunk async for chunk in synthesizer.synthesize("Hey Marvin.", voice)])
-    spoken = frames(0, SETTLE) + _to_frames(pcm, voice.sample_rate)
+    pcm = b"".join([chunk async for chunk in synthesizer.synthesize("Hey Jarvis.", voice)])
+    # Silence after, too: the score peaks just after the word ends, and a clip
+    # that stops dead on the last syllable scored 0.47 against 0.99 with a
+    # second of room after it -- which a real microphone always has.
+    spoken = frames(0, SETTLE) + _to_frames(pcm, voice.sample_rate) + frames(0, 1.0)
     hits = sum(1 for frame in spoken if detector.feed(frame))
     assert hits == 1, f"{hits} detections for one wake word"
 
