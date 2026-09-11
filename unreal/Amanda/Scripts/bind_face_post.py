@@ -82,8 +82,11 @@ def run():
     post = our_copy()
     if post is None:
         return
-    # The rig overwrites bones, so the head belongs here and nowhere else.
-    reparent(post, {"bApplyCurves": False, "bApplyHeadRotation": True})
+    # The rig overwrites bones, so the head belongs here and nowhere else. And
+    # nothing else belongs here: the main blueprint has already removed the
+    # solver's rest floor from the mouth curves, and doing it again on this
+    # copy would take the floor off twice.
+    reparent(post, {"bApplyCurves": False, "bApplyHeadRotation": True, "bRemoveRestFloor": False})
 
     main = unreal.load_asset(MAIN_ABP)
     if main is not None:

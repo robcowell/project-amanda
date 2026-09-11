@@ -276,18 +276,25 @@ machine.
   ~1.3s and 17 output tokens with a schema, ~1.6s and 71 without. Told in prose
   to answer in one line it still explained itself, at 92 tokens. Constraining
   the shape is what stops the model editorialising.
-- **The face's Control Rig overwrites the head -- proven on the second try.**
-  `ABP_Face_PostProcess` runs after the animation blueprint and writes the head
-  bone. The first test (2026-09-10) could not show that: its native proxy ran
-  *before* the graph (see the next entry), so nothing it did survived anyway.
-  Re-tested 2026-09-11 with the proxy fixed -- and demonstrably after the graph,
-  since the same proxy's rest-floor remap finds and moves 7 of 7 mouth curves:
-  `bDrivingHead=True`, the bone turned, and `face.head` still bit-identical to
-  the reference pose in every sample. Anything that has to survive belongs on
-  the far side of that rig. `Scripts/bind_face_post.py` puts our class on a
-  reparented copy of the post-process blueprint; it was tried once with the
-  broken proxy, so it has never had a fair test. The face mesh is on Epic's
-  `ABP_Face_PostProcess`.
+- **The head turns after the face's Control Rig, in a post-process copy.**
+  Epic's `ABP_Face_PostProcess` runs after the animation blueprint and rewrites
+  the head bone, so a turn made anywhere upstream is lost -- shown 2026-09-11
+  with a proxy demonstrably running after the graph: the bone turned
+  (`bDrivingHead=True`) and reached the renderer bit-identical to the reference
+  pose. The first test of this, on 2026-09-10, proved nothing (its proxy ran
+  *before* the graph -- next entry). What works: `Scripts/bind_face_post.py`
+  reparents a copy of that blueprint, `/Game/Amanda/ABP_AmandaFacePost`, onto
+  `UAmandaFaceAnimInstance` and binds it as the face mesh's post-process. Epic's
+  rig still runs inside it -- the jaw bone moved 9.8 degrees in speech against
+  3.7 in silence -- and our head turn lands after it, tracking the requested
+  yaw to a tenth of a degree. The copy turns the head and nothing else
+  (`bApplyCurves` and `bRemoveRestFloor` off there); the main blueprint does
+  the curves. `HeadMotionScale` is 2.5, by Rob's eye from 1, 2 and 3: presence's
+  own degree or two was "much improved but too subtle". The binding lives on
+  the face mesh under /Game/MetaHumans, which git ignores, so rerun the script
+  after the character is rebuilt. Read the head's angle from the quaternion:
+  the bone rests at 90 degrees of pitch, where Euler yaw and roll swing
+  through hundreds of degrees for a one-degree turn.
 - **A native anim proxy must evaluate the graph itself.** Override
   `Evaluate_WithRoot`, call `EvaluateAnimationNode_WithRoot` first, change the
   pose or curves, and return true. The base `Evaluate` returns false without

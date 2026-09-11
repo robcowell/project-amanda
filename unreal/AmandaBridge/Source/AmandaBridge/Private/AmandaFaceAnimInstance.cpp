@@ -99,7 +99,7 @@ void FAmandaFaceAnimProxy::PreUpdate(UAnimInstance* InAnimInstance, float DeltaS
 	// so everything it needs is copied here, on the game thread.
 	if (const UAmandaFaceAnimInstance* Face = Cast<UAmandaFaceAnimInstance>(InAnimInstance))
 	{
-		HeadRotation = Face->PresenceHeadRotation;
+		HeadRotation = Face->PresenceHeadRotation * FMath::Clamp(Face->HeadMotionScale, 0.0f, 5.0f);
 		HeadBone = Face->HeadBone;
 		NeckBone = Face->NeckBone;
 		NeckShare = FMath::Clamp(Face->NeckShare, 0.0f, 1.0f);

@@ -266,6 +266,23 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Amanda|Presence")
 	float NeckShare = 0.35f;
 
+	/**
+	 * How much of presence's head motion reaches the bone.
+	 *
+	 * Presence moves the head by a degree or two -- gaze lag takes a third of
+	 * each glance, drift adds about a degree -- which is the reference
+	 * implementation's number and stays in step with schedulers.py. Once the
+	 * head finally moved on screen (2026-09-11), Rob called it "much improved
+	 * but too subtle". Scaling here, on the renderer side, changes what the
+	 * portrait shows without changing what presence means. Settable live.
+	 *
+	 * 2.5 by Rob's eye, from takes at 1, 2 and 3 of the same passage. Measured
+	 * as the head's angle from rest: 1 gave a mean of 1.9 degrees, 2 gave 2.7,
+	 * 3 gave 6.5 -- glances are randomly timed, so single takes are noisy.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Amanda|Presence", meta = (ClampMin = 0.0, ClampMax = 5.0))
+	float HeadMotionScale = 2.5f;
+
 	/** Whether the head bone was found and posed. Diagnostics. */
 	UPROPERTY(BlueprintReadOnly, Category = "Amanda|Presence")
 	bool bDrivingHead = false;
