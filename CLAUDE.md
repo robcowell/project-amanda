@@ -337,6 +337,14 @@ machine.
   `Config/DefaultEditorSettings.ini`. It sat in DefaultEngine.ini for a day,
   read by nothing. Measured once fixed: 87 fps with the editor in the
   background and nobody touching it, which is what cleared the editor of blame.
+- **The editor is capped at 60 fps, through `FrameRateLimit`, not `t.MaxFPS`.**
+  After the solver moved to the CPU and throttling was switched off, the PC
+  shut down under the combined draw (2026-09-11). `t.MaxFPS=60` in
+  DefaultEngine.ini applied -- the log says so -- and was then reset to 0 by
+  game user settings, which call `UEngine::SetMaxFPS` with `FrameRateLimit`
+  at the variable's existing priority. It lives in `DefaultGameUserSettings.ini`
+  for fresh clones; an existing machine's `Saved/.../GameUserSettings.ini`
+  overrides that and needed the same edit. Measured: 59.8-60.0 fps, from ~86.
 - **UE 5.8.2 accepted MSVC 14.50 (Visual Studio 2026)** and the 10.0.26100 SDK.
   UE 5.7 documents 14.44 as preferred, so a VS 2022 install had been budgeted
   for and turned out to be unnecessary.
