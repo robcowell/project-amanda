@@ -308,8 +308,11 @@ machine.
 - **The look is Chloe from Detroit: Become Human** -- Rob's reference, 2026-09-11.
   High-key and airy: a large soft key, fill at about a quarter of it, a pale
   out-of-focus sky brighter than the face, a frame about 36cm tall at 85mm
-  f/2.8. `Scripts/build_lookdev_level.py` builds it; each number there records
-  what it replaced and why. The camera stays square-on even though Chloe is
+  f/2.8, graded cool (white balance 4700K, tint +0.1). `Scripts/build_lookdev_level.py`
+  builds it; each number there records what it replaced and why. The grade
+  was bracketed against colours measured from the reference -- skin red/blue
+  1.08 against Chloe's 1.07, hue 337 against 330. Lower white balance is
+  cooler, as on a camera; positive tint is magenta. The camera stays square-on even though Chloe is
   often shot three-quarter: presence aims her gaze along her head, and for a
   conversational avatar that is where the user is.
 - **The sky is Epic's `Template_Default`, its sun kept off her.** The sun moves

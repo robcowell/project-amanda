@@ -57,6 +57,11 @@ EYE_HEIGHT = 160.0
 #: not a brightness dial.
 EXPOSURE = 200.0
 
+#: The colour grade: white balance in kelvin, and tint. See pin_exposure for how
+#: they were chosen. Lower is cooler, as on a camera; positive tint is magenta.
+WHITE_BALANCE_K = 4700.0
+WHITE_TINT = 0.1
+
 #: Which way the character faces. The assembled Blueprint does not face down
 #: its own +X, so spawning it unrotated puts it in profile to a camera standing
 #: in front of it. Measured off a render rather than reasoned about.
@@ -217,6 +222,18 @@ def pin_exposure():
     # music video.
     settings.set_editor_property("override_bloom_intensity", True)
     settings.set_editor_property("bloom_intensity", 0.3)
+    # Chloe's grade is cool: rose skin rather than peach, and a sky that is blue
+    # rather than white. One white balance does both, because both are the same
+    # shift -- more blue against red. Bracketed on 2026-09-11 against colours
+    # measured from the reference (skin red/blue 1.07, hue 330): neutral 6500
+    # gave 1.28 and a peach 19 degrees; 5500 gave 1.18; 4700 gave 1.10. A little
+    # magenta (+0.1) took the skin from peach to her rose, hue 337; -0.1 went
+    # the other way, to 2. Global desaturation was the wrong tool: it would have
+    # drained a sky that needed more colour, not less.
+    settings.set_editor_property("override_white_temp", True)
+    settings.set_editor_property("white_temp", WHITE_BALANCE_K)
+    settings.set_editor_property("override_white_tint", True)
+    settings.set_editor_property("white_tint", WHITE_TINT)
     volume.set_editor_property("settings", settings)
     print(f"### exposure pinned at {EXPOSURE:.0f}")
 
