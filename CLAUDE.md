@@ -257,6 +257,31 @@ Each of these cost something to learn.
   away. Pairing is within one host API's list: Windows lists each device once
   per audio API, and its "Sound Mapper" entries are aliases for the default --
   the cable again. See `audio/devices.py`.
+- **Transcription starts in the pause, not after it.** `VoiceInput` starts
+  Whisper 250ms into a silence; if the endpointer then ends the utterance at
+  750ms, the finished utterance is what was transcribed plus silence, so that
+  transcript stands. Speech resuming discards it. One transcription at a time
+  (they share a model and its diagnostics), and none while she speaks -- what
+  is heard then is an interruption, which stops her first, or her own echo.
+  Measured 2026-09-11: text ready 17-117ms after the pause against ~550ms,
+  ~510ms of Whisper's ~530ms hidden, 761ms from the user stopping to her voice
+  with scripted replies. `stt_speculative` in telemetry says which turns.
+- **One thread in a PortAudio stream at a time.** `DeviceSink` calls the stream
+  from worker threads, and cancelling the coroutine awaiting one does not stop
+  the thread. On a barge-in the write carried on, `stop` wrote its fade on a
+  second thread and the speech worker's `finally` closed the stream on a
+  third: heap corruption (0xc0000374), 2026-09-11, the second time her echo
+  from the speakers interrupted her. Every stream call now holds a
+  `threading.Lock`, and writes go a 20ms block at a time checking `_stopped`
+  -- the one place a flag is right, because a thread cannot be cancelled. A
+  stop now lands within a block; before, the rest of the phrase played first.
+  Run with `-X faulthandler` to get a native crash's threads.
+- **Whisper retries once, at 0.4, not six times up to 1.0.** Every slow turn
+  on 2026-09-11 (3.6-5.3s) climbed the default ladder to 1.0, on background
+  noise hallucinated as twenty seconds of "Okay. All right." and on her echo
+  heard as "That's it."; every clean turn decoded at 0.0 in ~530ms. Retries
+  buy nothing on audio that was never speech. This, not waiting, is what the
+  earlier 2.0-5.1s turns were.
 
 ## Measured, not assumed
 
@@ -419,16 +444,20 @@ machine.
   flags at all: headset mic and headphones chosen while Windows' default input
   was still the cable; disconnecting moved her voice to the speakers and she
   waited, with no microphone to use; reconnecting brought the headset back and
-  she heard the next two turns without a restart. Not yet *heard*: her voice on
-  the speakers after a switch -- with no microphone there was no turn. Early
-  turns took 2.0-5.1s to transcribe; not reproduced since. Ruled out by
-  measurement: Whisper itself (Piper sentences, clean or telephone-band, ~0.5s),
-  temperature fallback (every segment since decoded at 0.0), the headset mic
-  (`tools/hear.py` on it: ~0.5s, accurate), playback during capture, and
-  Unreal competing for CPU (the editor had closed 12 minutes earlier). Every
-  turn now records Whisper's own `stt_compute_ms` and `stt_temperature` beside
+  she heard the next two turns without a restart. Not yet *heard*: her voice
+  on the speakers after a switch (it has been, from the start of a run, with
+  the desk microphone as default). Early turns took 2.0-5.1s to transcribe. Temperature fallback was first
+  ruled out, because every segment then decoded at 0.0 -- and was then caught
+  doing exactly this on noise and echo (see "Whisper retries once" above).
+  Ruled out by measurement: Whisper on clean speech (Piper sentences, clean
+  or telephone-band, ~0.5s), the headset mic (`tools/hear.py` on it: ~0.5s,
+  accurate), playback during capture, and Unreal competing for CPU. Every
+  turn records Whisper's own `stt_compute_ms` and `stt_temperature` beside
   `stt_ms`, so a slow one says whether it was transcribing or waiting. On this
   PC 12 CPU threads measured ~20% faster than the library's default of 4.
+  On speakers with a desk microphone she hears herself: her echo barges in
+  and becomes her next turn. There is no echo cancellation; headphones avoid
+  it.
 - **UE 5.8.2 accepted MSVC 14.50 (Visual Studio 2026)** and the 10.0.26100 SDK.
   UE 5.7 documents 14.44 as preferred, so a VS 2022 install had been budgeted
   for and turned out to be unnecessary.

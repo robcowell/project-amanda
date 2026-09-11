@@ -17,6 +17,7 @@ import array
 import asyncio
 import contextlib
 import logging
+import threading
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
@@ -202,6 +203,14 @@ class DeviceSink:
     _sample_rate: int = 0
     _stopped: bool = False
     _underruns: int = 0
+    #: Held for every call into the stream. Those calls run on worker threads,
+    #: and cancelling the coroutine awaiting one does not stop its thread: on a
+    #: barge-in the write carried on while `stop` wrote the fade on a second
+    #: thread and `close` -- from the speech worker's `finally`, at the same
+    #: moment -- freed the stream on a third. PortAudio is not safe against
+    #: that, and on 2026-09-11 it corrupted the heap (0xc0000374) the second
+    #: time her own echo interrupted her.
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     @property
     def underruns(self) -> int:
@@ -229,18 +238,41 @@ class DeviceSink:
     async def write(self, pcm: bytes) -> None:
         if self._stream is None or self._stopped or not pcm:
             return
-        self._tail = pcm[-SAMPLE_WIDTH:] or self._tail
         # The blocking write returns whether the device ran dry waiting for it.
         # It is the only place PortAudio reports that in this mode, so the
         # return value is the whole of the underrun signal -- discarding it, as
         # this did, meant a stutter mid-sentence left no trace anywhere.
-        if await asyncio.to_thread(self._stream.write, pcm):
+        if await asyncio.to_thread(self._write_blocks, pcm):
             self._underruns += 1
+
+    def _write_blocks(self, pcm: bytes) -> bool:
+        """On a worker thread: write a block at a time, stopping when told.
+
+        A thread cannot be cancelled, so this is the one place a flag is right:
+        `_stopped` is checked between blocks, and each block holds the lock, so
+        a stop lands within one block instead of after the rest of the phrase.
+        """
+        step = max(1, round(self._sample_rate * self.block_ms / 1000)) * SAMPLE_WIDTH * CHANNELS
+        underflowed = False
+        for start in range(0, len(pcm), step):
+            block = pcm[start : start + step]
+            with self._lock:
+                if self._stopped or self._stream is None:
+                    break
+                underflowed = bool(self._stream.write(block)) or underflowed
+                # What was actually written, so the fade starts from it.
+                self._tail = block[-SAMPLE_WIDTH:]
+        return underflowed
 
     async def drain(self) -> None:
         if self._stream is not None and not self._stopped:
-            await asyncio.to_thread(self._stream.stop)
-            await asyncio.to_thread(self._stream.start)
+            await asyncio.to_thread(self._restart)
+
+    def _restart(self) -> None:
+        with self._lock:
+            if self._stream is not None:
+                self._stream.stop()
+                self._stream.start()
 
     async def stop(self, fade_ms: int = 80) -> None:
         """Ramp down, then let the short remaining buffer play out.
@@ -252,22 +284,35 @@ class DeviceSink:
         if self._stream is None or self._stopped:
             return
         self._stopped = True
+        ramp = _ramp_to_silence(self._tail, fade_ms, self._sample_rate) if fade_ms > 0 else b""
         try:
-            if fade_ms > 0:
-                ramp = _ramp_to_silence(self._tail, fade_ms, self._sample_rate)
-                await asyncio.to_thread(self._stream.write, ramp)
-            await asyncio.wait_for(asyncio.to_thread(self._stream.stop), timeout=1.0)
+            await asyncio.wait_for(asyncio.to_thread(self._fade_and_stop, ramp), timeout=1.0)
         except (TimeoutError, Exception) as exc:  # noqa: B014 - TimeoutError is an Exception
             log.warning("output device did not stop cleanly: %s", exc)
+
+    def _fade_and_stop(self, ramp: bytes) -> None:
+        with self._lock:
+            if self._stream is None:
+                return  # closed first
+            if ramp:
+                self._stream.write(ramp)
+            self._stream.stop()
 
     async def close(self) -> None:
         if self._stream is None:
             return
-        stream, self._stream = self._stream, None
         try:
-            await asyncio.to_thread(stream.close)
+            await asyncio.to_thread(self._close)
         except Exception as exc:  # noqa: BLE001
             log.warning("output device did not close cleanly: %s", exc)
+
+    def _close(self) -> None:
+        # Behind the lock, so a stop that timed out but is still inside
+        # PortAudio finishes before the stream is freed under it.
+        with self._lock:
+            stream, self._stream = self._stream, None
+            if stream is not None:
+                stream.close()
 
 
 # --------------------------------------------------------------------------- #

@@ -65,6 +65,16 @@ class WhisperRecognizer:
     #: on the 32-thread renderer PC, where 12 measured ~20% faster.
     cpu_threads: int = 0
 
+    #: Temperatures to decode at, in order, moving on when a decode looks wrong
+    #: (repetitive, or low confidence). The library's default climbs 0.0 to 1.0
+    #: in six steps, and on the renderer PC, 2026-09-11, that was every slow
+    #: turn: 3.6-5.3s at temperature 1.0, on background noise transcribed as
+    #: "Okay. All right." for twenty seconds and on her own echo as "That's
+    #: it.", while every clean turn decoded first time in ~530ms. Retries buy
+    #: nothing on audio that was never speech, so there is one. 0.4 rather than
+    #: 0.2 so it has a chance of leaving the loop the first decode fell into.
+    temperatures: tuple[float, ...] = (0.0, 0.4)
+
     #: Per-segment detail from the last transcription, for diagnostics:
     #: (temperature, avg_logprob, compression_ratio, no_speech_prob). A
     #: temperature above 0 means Whisper was not confident and decoded again.
@@ -150,6 +160,7 @@ class WhisperRecognizer:
             # Off for short utterances: conditioning on previous text is what
             # makes Whisper loop, repeating a phrase until it fills the buffer.
             condition_on_previous_text=False,
+            temperature=list(self.temperatures),
         )
 
         # A generator: decoding happens as it is consumed, so materialise it

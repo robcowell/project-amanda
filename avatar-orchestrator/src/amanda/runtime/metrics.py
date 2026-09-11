@@ -87,6 +87,10 @@ class TurnMetrics:
     #: of, which multiplies the cost.
     stt_compute_ms: int | None = None
     stt_temperature: float | None = None
+    #: Whether the transcript was started during the pause before the
+    #: endpointer confirmed the turn -- in which case most of `stt_compute_ms`
+    #: happened before T0 and `stt_ms` is only what was left of it.
+    stt_speculative: bool | None = None
     #: Phrases synthesised, and the deepest the queue got waiting for them.
     phrases: int | None = None
     peak_queue_depth: int | None = None
@@ -163,6 +167,7 @@ class TurnMetrics:
             ("spoken_ms", self.spoken_ms),
             ("stt_compute_ms", self.stt_compute_ms),
             ("stt_temperature", self.stt_temperature),
+            ("stt_speculative", self.stt_speculative),
             ("phrases", self.phrases),
             ("peak_queue_depth", self.peak_queue_depth),
             ("underruns", self.underruns),

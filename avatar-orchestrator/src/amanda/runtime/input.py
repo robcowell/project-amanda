@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
 from amanda.audio.microphone import Microphone
-from amanda.audio.stt import SpeechRecognizer
+from amanda.audio.stt import SpeechRecognizer, Transcript
 from amanda.audio.vad import BargeInDetector, Endpointer, Utterance
 from amanda.audio.wake import AlwaysAwake, WakeWordDetector
 
@@ -58,6 +58,9 @@ class UserTurn:
     stt_compute_ms: int | None = None
     #: The highest temperature Whisper needed. Above 0 means it re-decoded.
     stt_temperature: float | None = None
+    #: Whether transcription started in the pause, before T0. Then most of
+    #: `stt_compute_ms` was spent while the endpointer was still waiting.
+    stt_speculative: bool = False
 
     @property
     def empty(self) -> bool:
@@ -207,9 +210,26 @@ class VoiceInput:
     #: enough.
     min_voiced_ms: int = 400
 
-    _utterances: asyncio.Queue[Utterance | None] = field(
-        default_factory=asyncio.Queue, init=False
+    #: Start transcribing once the user has been quiet this long, instead of
+    #: waiting for the endpointer's full `silence_to_end`. If the pause does
+    #: end the turn, the finished utterance is what was transcribed plus
+    #: nothing but silence, so the early transcript stands and most of
+    #: Whisper's time overlaps the wait. If they carry on talking it is thrown
+    #: away. 0.25s is chosen so Whisper's ~0.56s ends about when the 0.75s
+    #: wait does. None transcribes only after the turn ends.
+    speculate_after: float | None = 0.25
+
+    #: Each utterance, with the transcription started in its last pause if that
+    #: is still good.
+    _utterances: asyncio.Queue[tuple[Utterance, asyncio.Task[Transcript] | None] | None] = (
+        field(default_factory=asyncio.Queue, init=False)
     )
+    #: Started in the current pause, for the utterance in progress. Cleared the
+    #: moment speech resumes, because it has not heard what came next.
+    _speculation: asyncio.Task[Transcript] | None = field(default=None, init=False)
+    #: The last transcription started, stale or not. Never two at once: they
+    #: share one model and its diagnostics, and would only slow each other.
+    _recognising: asyncio.Task[Transcript] | None = field(default=None, init=False)
     _reader: asyncio.Task[None] | None = field(default=None, init=False, repr=False)
     _interrupted: asyncio.Event = field(default_factory=asyncio.Event, init=False)
     _armed: bool = field(default=False, init=False)
@@ -246,6 +266,9 @@ class VoiceInput:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._reader
             self._reader = None
+        if self._recognising is not None:
+            self._recognising.cancel()
+            self._recognising = self._speculation = None
         await self.microphone.stop()
 
     async def switch_microphone(self, reopen: Callable[[], str | int | None]) -> None:
@@ -265,6 +288,7 @@ class VoiceInput:
                 self._reader = None
             await self.microphone.stop()
             self.endpointer.reset()
+            self._speculation = None
             self.microphone.device = reopen()
             await self.microphone.start()
             self._reader = asyncio.create_task(self._read(), name="microphone")
@@ -274,9 +298,10 @@ class VoiceInput:
     async def next_turn(self) -> UserTurn | None:
         """Wait for a complete utterance and transcribe it."""
         while True:
-            utterance = await self._utterances.get()
-            if utterance is None:
+            item = await self._utterances.get()
+            if item is None:
                 return None
+            utterance, early = item
 
             # T0: the user has stopped speaking. Everything after this is
             # latency they can feel.
@@ -293,7 +318,7 @@ class VoiceInput:
                 self.discarded += 1
                 continue
 
-            transcript = await self.recognizer.transcribe(utterance)
+            transcript, speculative = await self._transcribe(utterance, early)
             if transcript.empty:
                 # Silence the endpointer let through. Whisper will happily
                 # invent words for it, which is why the recogniser suppresses
@@ -311,7 +336,53 @@ class VoiceInput:
                 audio_ms=utterance.duration_ms,
                 stt_compute_ms=transcript.elapsed_ms or None,
                 stt_temperature=transcript.max_temperature,
+                stt_speculative=speculative,
             )
+
+    async def _transcribe(
+        self, utterance: Utterance, early: asyncio.Task[Transcript] | None
+    ) -> tuple[Transcript, bool]:
+        """The transcript, and whether it was started in the pause."""
+        if early is not None:
+            try:
+                return await early, True
+            except Exception:  # noqa: BLE001 - transcribed again below, and that one may raise
+                log.warning("transcription started in the pause failed; trying again")
+        if self._recognising is not None and not self._recognising.done():
+            # A stale one from an earlier pause is still running.
+            await asyncio.wait([self._recognising])
+        return await self._recognise(utterance), False
+
+    def _recognise(self, utterance: Utterance) -> asyncio.Task[Transcript]:
+        task = asyncio.create_task(self.recognizer.transcribe(utterance), name="transcribe")
+        # A stale transcription is never awaited; retrieve its failure here so
+        # asyncio does not report it as unhandled.
+        task.add_done_callback(lambda t: t.cancelled() or t.exception())
+        self._recognising = task
+        return task
+
+    def _speculate(self) -> None:
+        """Start transcribing if the user has paused long enough."""
+        if self.endpointer.silent_ms == 0:
+            # Speech (or no utterance at all): anything started in a pause has
+            # not heard these words.
+            self._speculation = None
+            return
+        if (
+            self.speculate_after is None
+            # She is speaking. What is heard now is an interruption, which
+            # stops her first, or her own voice from the speakers -- and
+            # Whisper would compete with Piper for the CPU to transcribe it.
+            or self._armed
+            or self._speculation is not None
+            or self.endpointer.silent_ms < self.speculate_after * 1000
+            # Not worth the CPU for something `next_turn` will discard anyway.
+            or self.endpointer.voiced_ms < self.min_voiced_ms
+            or not self.awake
+            or (self._recognising is not None and not self._recognising.done())
+        ):
+            return
+        self._speculation = self._recognise(self.endpointer.snapshot())
 
     async def wait_for_barge_in(self) -> None:
         """Block until sustained speech is heard over the avatar."""
@@ -334,7 +405,10 @@ class VoiceInput:
             async with self.microphone.listen() as frames:
                 async for frame in frames:
                     if (utterance := self.endpointer.feed(frame)) is not None:
-                        self._utterances.put_nowait(utterance)
+                        self._utterances.put_nowait((utterance, self._speculation))
+                        self._speculation = None
+                    else:
+                        self._speculate()
                     if self._armed and self.barge_in.feed(frame):
                         self._interrupted.set()
                     if self.wake.feed(frame):

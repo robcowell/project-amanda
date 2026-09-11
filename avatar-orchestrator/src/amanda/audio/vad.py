@@ -107,6 +107,28 @@ class Endpointer:
     def speaking(self) -> bool:
         return self._speaking
 
+    @property
+    def silent_ms(self) -> float:
+        """Silence since the last voiced frame of the utterance in progress."""
+        return self._silent_ms
+
+    @property
+    def voiced_ms(self) -> float:
+        """Voiced audio in the utterance in progress."""
+        return self._voiced_ms
+
+    def snapshot(self) -> Utterance:
+        """The utterance so far, without ending it.
+
+        For transcribing during the silence that may or may not end it: if it
+        does end, the finished utterance is this plus nothing but silence.
+        """
+        return Utterance(
+            pcm=b"".join(self._captured),
+            sample_rate=self.sample_rate,
+            voiced_ms=round(self._voiced_ms),
+        )
+
     def reset(self) -> None:
         self._speaking = False
         self._captured.clear()

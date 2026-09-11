@@ -289,6 +289,8 @@ class Session:
         # Here rather than in finish(): report() prints before finish() runs.
         metrics.stt_compute_ms = user.stt_compute_ms
         metrics.stt_temperature = user.stt_temperature
+        if user.stt_compute_ms is not None:
+            metrics.stt_speculative = user.stt_speculative
 
         self.enter(ConversationState.THINKING)
 
@@ -495,12 +497,19 @@ class Session:
         parts = [f"{name}={record[name]}" for name in names if name in record]
         print(f"  [{'  '.join(parts)}]")
         if "stt_compute_ms" in record:
-            # Beside stt_ms rather than in the budget: it is part of that span,
-            # and the gap between the two is the diagnosis.
-            print(
-                f"  [whisper computed {record['stt_compute_ms']}ms of that, "
-                f"temperature {record.get('stt_temperature', 0.0)}]"
-            )
+            # Beside stt_ms rather than in the budget. Without speculation it is
+            # part of that span, and a gap between the two is waiting. With it,
+            # most of it ran in the pause before T0, and stt_ms is the rest.
+            compute = record["stt_compute_ms"]
+            temperature = record.get("stt_temperature", 0.0)
+            if record.get("stt_speculative"):
+                hidden = max(0, compute - record.get("stt_ms", 0))
+                print(
+                    f"  [whisper computed {compute}ms, started in the pause -- "
+                    f"{hidden}ms of it hidden; temperature {temperature}]"
+                )
+            else:
+                print(f"  [whisper computed {compute}ms of that, temperature {temperature}]")
         print()
 
     async def follow_devices(self) -> None:
