@@ -104,6 +104,36 @@ void FAmandaFaceAnimProxy::PreUpdate(UAnimInstance* InAnimInstance, float DeltaS
 		NeckBone = Face->NeckBone;
 		NeckShare = FMath::Clamp(Face->NeckShare, 0.0f, 1.0f);
 		bApply = Face->bApplyPresence && Face->bApplyHeadRotation && Face->bHasPresence;
+
+		// Independent of presence: the floors belong to the solver's output, and
+		// a face with no presence component still speaks.
+		RestFloors = Face->RestFloors;
+		RestFloorStrength = Face->bRemoveRestFloor ? FMath::Clamp(Face->RestFloorStrength, 0.0f, 1.0f) : 0.0f;
+	}
+}
+
+void FAmandaFaceAnimProxy::RemoveRestFloors(FBlendedCurve& Curve) const
+{
+	RestFloorCurvesFound = 0;
+	if (RestFloorStrength <= 0.0f)
+	{
+		return;
+	}
+
+	for (const FAmandaCurveFloor& Entry : RestFloors)
+	{
+		bool bHasElement = false;
+		const float Value = Curve.Get(Entry.Curve, bHasElement, 0.0f);
+		if (!bHasElement)
+		{
+			continue;
+		}
+
+		// Capped below 1 so the division always has room: a floor of 1 would
+		// mean "this curve is always fully on", which is not a resting offset.
+		const float Floor = FMath::Clamp(Entry.Floor * RestFloorStrength, 0.0f, 0.9f);
+		Curve.Set(Entry.Curve, FMath::Clamp((Value - Floor) / (1.0f - Floor), 0.0f, 1.0f));
+		++RestFloorCurvesFound;
 	}
 }
 
@@ -151,14 +181,18 @@ namespace
 	}
 }
 
-bool FAmandaFaceAnimProxy::Evaluate(FPoseContext& Output)
+bool FAmandaFaceAnimProxy::Evaluate_WithRoot(FPoseContext& Output, FAnimNode_Base* InRootNode)
 {
-	const bool bResult = FAnimInstanceProxy::Evaluate(Output);
+	// The graph first -- see the header. Returning true below tells the engine
+	// the pose is done, so it does not evaluate the graph again over the top.
+	EvaluateAnimationNode_WithRoot(Output, InRootNode);
+
+	RemoveRestFloors(Output.Curve);
 
 	bPosedHead = false;
 	if (!bApply || HeadRotation.IsNearlyZero())
 	{
-		return bResult;
+		return true;
 	}
 
 	const FRotator NeckPart = HeadRotation * NeckShare;
@@ -173,7 +207,7 @@ bool FAmandaFaceAnimProxy::Evaluate(FPoseContext& Output)
 	bPosedHead = RotateBoneComponentSpace(CSPose, HeadBone, HeadPart);
 	FCSPose<FCompactPose>::ConvertComponentPosesToLocalPoses(MoveTemp(CSPose), Output.Pose);
 
-	return bResult;
+	return true;
 }
 
 void FAmandaFaceAnimProxy::PostUpdate(UAnimInstance* InAnimInstance) const
@@ -183,6 +217,7 @@ void FAmandaFaceAnimProxy::PostUpdate(UAnimInstance* InAnimInstance) const
 	if (UAmandaFaceAnimInstance* Face = Cast<UAmandaFaceAnimInstance>(InAnimInstance))
 	{
 		Face->bDrivingHead = bPosedHead;
+		Face->RestFloorCurvesFound = RestFloorCurvesFound;
 	}
 }
 

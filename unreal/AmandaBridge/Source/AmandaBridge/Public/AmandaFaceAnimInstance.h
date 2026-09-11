@@ -13,8 +13,10 @@
 //
 // It layers *after* the Live Link pose, because NativeUpdateAnimation runs
 // before the graph evaluates and the curve values it sets are applied to the
-// result. The mouth is untouched: nothing here writes a jaw or lip curve, and
-// nothing should.
+// result. Presence never writes a jaw or lip curve: the mouth is the speech
+// solver's. The one exception is FAmandaCurveFloor below, which does not add
+// a shape of its own -- it removes the solver's resting offset from a few
+// mouth curves, so the mouth closes when she is silent.
 
 #pragma once
 
@@ -25,6 +27,32 @@
 #include "AmandaFaceAnimInstance.generated.h"
 
 class UAmandaPresenceComponent;
+
+/**
+ * A curve's resting offset, to be removed.
+ *
+ * The speech solver never returns her mouth to closed. Measured in silence on
+ * 2026-09-11, with the mood already Neutral: lips drawn apart (mouthLipsPull)
+ * at ~0.38-0.45, the jaw open at ~0.16, the lower lip down at ~0.06 -- and
+ * speech built on top of that, which Rob saw as "a little open-mouthed over
+ * many phonemes". Each curve is remapped as (v - floor) / (1 - floor), clamped
+ * to 0..1: silence reads as closed, and a full vowel still reaches 1.
+ */
+USTRUCT(BlueprintType)
+struct AMANDABRIDGE_API FAmandaCurveFloor
+{
+	GENERATED_BODY()
+
+	FAmandaCurveFloor() = default;
+	FAmandaCurveFloor(FName InCurve, float InFloor) : Curve(InCurve), Floor(InFloor) {}
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Amanda|Curves")
+	FName Curve;
+
+	/** The value the solver holds this curve at in silence. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Amanda|Curves", meta = (ClampMin = 0.0, ClampMax = 0.9))
+	float Floor = 0.0f;
+};
 
 /**
  * Curve names differ between MetaHuman versions and between rigs, so they are
@@ -105,13 +133,32 @@ struct AMANDABRIDGE_API FAmandaFaceAnimProxy : public FAnimInstanceProxy
 	/** Game thread, before evaluation: copy what the worker thread will need. */
 	virtual void PreUpdate(UAnimInstance* InAnimInstance, float DeltaSeconds) override;
 
-	/** Worker thread: run the graph, then turn the head. */
-	virtual bool Evaluate(FPoseContext& Output) override;
+	/**
+	 * Worker thread: run the graph, *then* change its output.
+	 *
+	 * This evaluates the graph itself and returns true. The base implementation
+	 * does not evaluate anything -- it returns false, and the engine runs the
+	 * node graph afterwards (AnimInstanceProxy.cpp, EvaluateAnimation_WithRoot).
+	 * The first version of this override called the base, changed the pose it
+	 * got back, and returned false, so every change was made to a pose the graph
+	 * then overwrote. That is why the rest-floor remap found none of its curves,
+	 * and why a head turn applied here never reached the renderer.
+	 */
+	virtual bool Evaluate_WithRoot(FPoseContext& Output, FAnimNode_Base* InRootNode) override;
 
 	/** Game thread again: report back whether the head was actually posed. */
 	virtual void PostUpdate(UAnimInstance* InAnimInstance) const override;
 
 private:
+	/**
+	 * Remap the solver's mouth curves so silence reads as closed.
+	 *
+	 * Here rather than anywhere later because curves are the face rig's input:
+	 * this runs after the Live Link graph has produced them and before the
+	 * post-process Control Rig turns them into bones.
+	 */
+	void RemoveRestFloors(FBlendedCurve& Curve) const;
+
 	FRotator HeadRotation = FRotator::ZeroRotator;
 	FName HeadBone = NAME_None;
 	FName NeckBone = NAME_None;
@@ -119,6 +166,11 @@ private:
 	bool bApply = false;
 	/** Written during evaluation, read on the game thread by PostUpdate. */
 	mutable bool bPosedHead = false;
+
+	TArray<FAmandaCurveFloor> RestFloors;
+	float RestFloorStrength = 0.0f;
+	/** How many floored curves were present and remapped last evaluation. */
+	mutable int32 RestFloorCurvesFound = 0;
 
 	friend class UAmandaFaceAnimInstance;
 };
@@ -217,6 +269,38 @@ public:
 	/** Whether the head bone was found and posed. Diagnostics. */
 	UPROPERTY(BlueprintReadOnly, Category = "Amanda|Presence")
 	bool bDrivingHead = false;
+
+	/**
+	 * The solver's resting offsets, removed so her mouth closes in silence.
+	 *
+	 * Defaults are the silence means measured under the Neutral mood on
+	 * 2026-09-11. See FAmandaCurveFloor.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Amanda|Speech")
+	TArray<FAmandaCurveFloor> RestFloors = {
+		FAmandaCurveFloor(FName(TEXT("CTRL_expressions_jawOpen")), 0.16f),
+		FAmandaCurveFloor(FName(TEXT("CTRL_expressions_mouthLipsPullUL")), 0.38f),
+		FAmandaCurveFloor(FName(TEXT("CTRL_expressions_mouthLipsPullUR")), 0.38f),
+		FAmandaCurveFloor(FName(TEXT("CTRL_expressions_mouthLipsPullDL")), 0.45f),
+		FAmandaCurveFloor(FName(TEXT("CTRL_expressions_mouthLipsPullDR")), 0.43f),
+		FAmandaCurveFloor(FName(TEXT("CTRL_expressions_mouthLowerLipDepressL")), 0.05f),
+		FAmandaCurveFloor(FName(TEXT("CTRL_expressions_mouthLowerLipDepressR")), 0.07f),
+	};
+
+	/** Off switch, so the change can be A/B'd live against the solver's own. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Amanda|Speech")
+	bool bRemoveRestFloor = true;
+
+	/**
+	 * How much of each floor to remove, 0..1 -- the one dial to turn by eye.
+	 * Below 1 leaves some resting openness, if fully closed reads as clenched.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Amanda|Speech", meta = (ClampMin = 0.0, ClampMax = 1.0))
+	float RestFloorStrength = 1.0f;
+
+	/** How many floored curves the solver's output actually contained. Diagnostics. */
+	UPROPERTY(BlueprintReadOnly, Category = "Amanda|Speech")
+	int32 RestFloorCurvesFound = 0;
 
 protected:
 	virtual FAnimInstanceProxy* CreateAnimInstanceProxy() override;

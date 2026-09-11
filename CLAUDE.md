@@ -232,12 +232,12 @@ Each of these cost something to learn.
 - **What the user hears waits for the face.** The cable gets the voice
   immediately and drives the solver; `--monitor` plays a second copy to the
   speakers `--monitor-delay` later so the two land together. Hearing the cable
-  directly (Windows' "Listen to this device") puts the sound ~615ms ahead of the
+  directly (Windows' "Listen to this device") puts the sound ~650ms ahead of the
   mouth -- turn it off when using `--monitor`, or it is heard twice.
 - **The monitor delay is anchored per chunk, not added as silence at open.**
   Silence at open is caught up by the first pause and sync silently stops after
   one sentence. And a barge-in drops the monitor's unplayed backlog, so an
-  interruption is heard to land promptly rather than 615ms late.
+  interruption is heard to land promptly rather than 650ms late.
 - **Filter noise on voiced audio, not buffer length.** An utterance always
   carries its pre-roll and the silence that ended it, so a 0.4s cough arrives
   as a 1.3s buffer. `Utterance.voiced_ms` is the number to threshold.
@@ -276,33 +276,50 @@ machine.
   ~1.3s and 17 output tokens with a schema, ~1.6s and 71 without. Told in prose
   to answer in one line it still explained itself, at 92 tokens. Constraining
   the shape is what stops the model editorialising.
-- **The face's Control Rig overwrites every bone, so nothing upstream of it can
-  move the head.** `ABP_Face_PostProcess` runs after the animation blueprint and
-  writes the bones it owns, the head included. Three routes were tried and all
-  three failed for this one reason: the rig's `CTRL_expressions_headTurn*`
-  curves (0.6px at saturation), the blueprint's own `ARKit_HeadRotation`
-  rotator, and a native anim proxy posing the bone directly. The last one is
-  what proves it -- `Scripts/probe_head_bone.py` reports `bDrivingHead=True`,
-  meaning the bone was found and turned in the graph's output, while the
-  component's head bone stays bit-identical to the reference pose. Anything
-  that has to survive belongs on the far side of that rig, in a post-process
-  blueprint. **Parked, unresolved.** `Scripts/bind_face_post.py` binds a
-  reparented copy of that post-process blueprint to the face mesh; tried once
-  on 2026-09-11 and the head stayed frozen, but the probe read the main
-  instance, not the post-process one, so which half failed is unknown. The
-  face mesh is back on Epic's `ABP_Face_PostProcess`.
-- **Curves are input to that rig; bone poses are output.** Blinks and gaze work
-  from the main graph because the rig consumes those curves. That asymmetry is
-  why the two halves live in two blueprints.
+- **Whether the face's Control Rig overwrites the head is unknown -- the test
+  that "proved" it was broken.** The claim, recorded here until 2026-09-11, was
+  that `ABP_Face_PostProcess` rewrites the head after the animation blueprint,
+  because a native anim proxy turning the bone left it bit-identical to the
+  reference pose. But that proxy overrode `Evaluate`, called the base -- which
+  evaluates nothing and returns false -- and returned false, so the engine then
+  evaluated the graph *over* every change it had made (see the next entry).
+  The rig may well still overwrite the head; nothing has shown it yet. Re-test
+  with `Scripts/probe_head_bone.py` now that the proxy runs after the graph.
+  The face mesh is on Epic's `ABP_Face_PostProcess`.
+- **A native anim proxy must evaluate the graph itself.** Override
+  `Evaluate_WithRoot`, call `EvaluateAnimationNode_WithRoot` first, change the
+  pose or curves, and return true. The base `Evaluate` returns false without
+  evaluating anything, and the engine then runs the graph afterwards
+  (`AnimInstanceProxy.cpp`, `EvaluateAnimation_WithRoot`), discarding whatever
+  was done. It cost a day on the head and showed up plainly only when the
+  rest-floor remap reported finding 0 of 7 curves that were visibly there --
+  which is the reason every such change reports what it touched.
+- **Curves are input to that rig.** Blinks and gaze work from the main graph
+  because the rig consumes those curves, and so does the rest-floor remap.
 - **The solver's `Lookahead` is what closes the lips.** At the default 80ms, p,
   b and m never closed; at 240ms (the maximum) they do, judged by Rob's eye on
   2026-09-11. Plausibly because those closures happen *before* the burst that
   identifies them, and 80ms is too short to have heard it. Set and persisted by
   `Scripts/set_lookahead.py`, which rebuilds the Live Link preset.
-- **The face runs about 615ms behind the audio** at a lookahead of 240ms, with
+- **The solver's mood is Neutral, not AutoDetect.** At AutoDetect she was
+  open-mouthed across many phonemes: silence left dimples (~0.11) and the lower
+  lip depressed (~0.16), a slight smile under all her speech. Neutral took those
+  to ~0.04 and ~0.06; AutoDetect at 0.3 intensity changed almost nothing. Rob
+  judged Neutral best by eye, 2026-09-11. Persisted by `Scripts/set_mood.py`.
+  Mood does not move the floor under the lips (`mouthLipsPull` ~0.4) and jaw
+  (~0.16) in silence -- that is the solver's own rest pose.
+- **The solver's rest floor is removed before the rig sees it.**
+  `UAmandaFaceAnimInstance::RestFloors` remaps seven mouth curves as
+  `(v - floor) / (1 - floor)`, floors taken from silence under Neutral. Measured
+  2026-09-11: rest jaw 0.160 -> 0.000, lips apart 0.38/0.45 -> ~0, lower lip
+  0.05 -> 0; speech peaks kept (lips apart p90 0.93 -> 0.86), jaw range down
+  (p90 0.38 -> 0.22). Rob: "looks good" at full strength. `RestFloorStrength`
+  is the dial, `bRemoveRestFloor` the A/B switch, both settable live.
+- **The face runs about 650ms behind the audio** at a lookahead of 240ms, with
   the solver on the CPU -- found by ear with `--monitor-delay`. It was 650 while
-  the GPU solver was dropping frames, then 615 once it kept pace (600 early,
-  630 late). Only 240ms of it is lookahead. **The other ~375ms is unaccounted
+  the GPU solver was dropping frames, 615 once it kept pace, and 650 again after
+  the CPU's power limits were lowered in the BIOS: it moves with solver speed.
+  Only 240ms of it is lookahead. **The other ~410ms is unaccounted
   for** (capture buffer, Live Link frame buffering, the solver's pipeline), and
   all of it is response time, because the sound the user hears waits for the
   face. It is the largest unexplained term left in a turn.

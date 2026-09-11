@@ -453,14 +453,14 @@ def main() -> int:
         "--monitor", help="also play to this device, delayed to land with the face"
     )
     parser.add_argument(
-        # Measured by eye on 2026-09-11 at a solver lookahead of 240ms. First
-        # 650, while the solver ran on the GPU and dropped four frames in five;
-        # then 615 once it ran on the CPU and kept pace (600 early, 630 late).
-        # It tracks the face's whole lag: re-measure when the lookahead or the
-        # solver backend changes.
-        "--monitor-delay", type=int, default=615, metavar="MS",
+        # Measured by eye on 2026-09-11 at a solver lookahead of 240ms: 650 while
+        # the solver ran on the GPU and dropped frames; 615 on the CPU; then 650
+        # again after the CPU's power limits were lowered in the BIOS (640 mouth
+        # late, 680 early, 660 close, 650 in sync). It tracks the face's whole
+        # lag, so it moves with anything that changes how fast the solver runs.
+        "--monitor-delay", type=int, default=650, metavar="MS",
         help="how far the monitor lags the face's audio device, so the two land "
-        "together (default: 615, measured at a solver lookahead of 240ms)",
+        "together (default: 650, measured at a solver lookahead of 240ms)",
     )
     parser.add_argument("--no-audio", action="store_true", help="run silently")
     parser.add_argument(
