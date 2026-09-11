@@ -1,0 +1,59 @@
+# Training config for the "hey Amanda" wake word, read by openWakeWord's own
+# train.py (0.6.0). Run through train_hey_amanda.py, which makes it work on
+# Windows. Sizes are examples/custom_model.yml's defaults, not the notebook's
+# cut-down demo values. Paths point at D:\amanda-wakeword, outside the repo:
+# about 20 GB of downloaded features and generated clips do not belong in git.
+
+model_name: hey_amanda
+target_phrase:
+  - "hey amanda"
+
+# Near misses to learn to ignore, beside the ones train.py generates itself
+# from the phrase's pronunciation. Names that rhyme or share a stress pattern,
+# the other assistants' wake words, and "hey" or "Amanda" used otherwise.
+custom_negative_phrases:
+  - "hey amelia"
+  - "hey miranda"
+  - "hey samantha"
+  - "hey wanda"
+  - "hey panda"
+  - "a manager"
+  - "hey man"
+  - "agenda"
+  - "a banana"
+  - "hey alexa"
+  - "hey jarvis"
+  - "I saw amanda yesterday"
+  - "hey, how are you"
+
+n_samples: 10000
+n_samples_val: 2000
+tts_batch_size: 50
+augmentation_batch_size: 16
+augmentation_rounds: 1
+
+# The folder train.py imports generate_samples from: this one.
+piper_sample_generator_path: "."
+output_dir: "D:/amanda-wakeword/model"
+
+rir_paths:
+  - "D:/amanda-wakeword/data/mit_rirs/16khz"
+background_paths:
+  - "D:/amanda-wakeword/data/audioset_16k"
+background_paths_duplication_rate:
+  - 1
+
+false_positive_validation_data_path: "D:/amanda-wakeword/data/validation_set_features.npy"
+feature_data_files:
+  ACAV100M_sample: "D:/amanda-wakeword/data/openwakeword_features_ACAV100M_2000_hrs_16bit.npy"
+
+batch_n_per_class:
+  ACAV100M_sample: 1024
+  adversarial_negative: 50
+  positive: 50
+
+model_type: dnn
+layer_size: 32
+steps: 50000
+max_negative_weight: 1500
+target_false_positives_per_hour: 0.2

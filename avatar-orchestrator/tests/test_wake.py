@@ -122,6 +122,17 @@ async def test_an_unknown_keyword_lists_what_is_available():
         await OpenWakeWordDetector(keyword="hey_amanda").warm()
 
 
+async def test_a_custom_model_is_named_by_path_and_must_exist():
+    """How "hey Amanda" is loaded: a model trained here, not one of theirs."""
+    pytest.importorskip("openwakeword", reason="openwakeword is not installed")
+    from amanda.audio.wake import OpenWakeWordDetector
+
+    detector = OpenWakeWordDetector(keyword="models/no_such_word.onnx")
+    assert detector.name == "openwakeword:no_such_word"
+    with pytest.raises(WakeWordError, match="no wake word model at"):
+        await detector.warm()
+
+
 async def test_ordinary_noise_does_not_wake_it(detector):
     await detector.warm()
     detector.reset()
@@ -153,9 +164,8 @@ async def test_resetting_leaves_the_models_own_state_alone(detector):
     assert not detector._buffer, "reset should clear our framing buffer"
 
 
-async def test_the_real_phrase_wakes_it_and_only_once():
-    """Piper says it, the detector hears it. One spoken wake word scores above
-    threshold on several consecutive chunks, so the cooldown collapses them."""
+async def _detections(text: str) -> int:
+    """How many times the configured wake word fires on Piper saying `text`."""
     pytest.importorskip("openwakeword", reason="openwakeword is not installed")
     pytest.importorskip("piper", reason="piper is not installed")
     from amanda.audio.engines import build as build_engine
@@ -167,13 +177,25 @@ async def test_the_real_phrase_wakes_it_and_only_once():
     detector = build("openwakeword")
     await detector.warm()
 
-    pcm = b"".join([chunk async for chunk in synthesizer.synthesize("Hey Jarvis.", voice)])
+    pcm = b"".join([chunk async for chunk in synthesizer.synthesize(text, voice)])
     # Silence after, too: the score peaks just after the word ends, and a clip
     # that stops dead on the last syllable scored 0.47 against 0.99 with a
     # second of room after it -- which a real microphone always has.
     spoken = frames(0, SETTLE) + _to_frames(pcm, voice.sample_rate) + frames(0, 1.0)
-    hits = sum(1 for frame in spoken if detector.feed(frame))
+    return sum(1 for frame in spoken if detector.feed(frame))
+
+
+async def test_her_name_wakes_her_and_only_once():
+    """"Hey Amanda", in her own voice -- not the voice the model was trained
+    on. One spoken wake word scores above threshold on several consecutive
+    chunks, so the cooldown collapses them."""
+    hits = await _detections("Hey Amanda.")
     assert hits == 1, f"{hits} detections for one wake word"
+
+
+async def test_another_assistants_name_does_not():
+    """The placeholder she answered to before."""
+    assert await _detections("Hey Jarvis.") == 0
 
 
 #: Silence to run through the detector before the phrase under test.

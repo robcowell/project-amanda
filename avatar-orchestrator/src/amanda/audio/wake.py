@@ -131,7 +131,7 @@ class OpenWakeWordDetector:
 
     @property
     def name(self) -> str:
-        return f"openwakeword:{self.keyword}"
+        return f"openwakeword:{Path(self.keyword).stem}"
 
     @property
     def always_awake(self) -> bool:
@@ -145,8 +145,11 @@ class OpenWakeWordDetector:
         from openwakeword.model import Model
 
         models = Path(openwakeword.__file__).parent / "resources" / "models"
-        matches = sorted(models.glob(f"{self.keyword}*.onnx"))
         known = getattr(openwakeword, "MODELS", {})
+        if self.keyword.endswith(".onnx"):
+            await self._warm_custom(models)
+            return
+        matches = sorted(models.glob(f"{self.keyword}*.onnx"))
         if not matches and self.keyword in known:
             # Since 0.5 the models are not in the package: the library fetches
             # them, with the two feature models every keyword needs, from its
@@ -179,6 +182,42 @@ class OpenWakeWordDetector:
             # build, and 0.6 only falls back to onnx after failing to import it.
             self._model = Model(wakeword_models=[str(matches[0])], inference_framework="onnx")
         log.info("wake word ready: %s", matches[0].stem)
+
+    async def _warm_custom(self, models: Path) -> None:
+        """A model trained for this project, named by path -- "hey Amanda".
+
+        Relative paths are from the orchestrator folder, so config can name a
+        model that ships in the repo. It still needs openWakeWord's two feature
+        models, which every keyword shares; fetched once if missing.
+        """
+        from openwakeword.model import Model
+
+        from amanda.config import project_root
+
+        path = Path(self.keyword)
+        if not path.is_absolute():
+            path = project_root() / path
+        if not path.is_file():
+            raise WakeWordError(f"no wake word model at {path}")
+
+        features = ("melspectrogram", "embedding_model")
+        if not all((models / f"{name}.onnx").is_file() for name in features):
+            from openwakeword.utils import download_models
+
+            # It always fetches the feature models; a name it does not know
+            # adds nothing else.
+            log.info("downloading openWakeWord's feature models (once)")
+            try:
+                await asyncio.to_thread(download_models, ["__features_only__"])
+            except Exception as exc:  # noqa: BLE001 - surfaced with context
+                raise WakeWordError(
+                    f"could not download openWakeWord's feature models: {exc}"
+                ) from exc
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            self._model = Model(wakeword_models=[str(path)], inference_framework="onnx")
+        log.info("wake word ready: %s", path.stem)
 
     def reset(self) -> None:
         """Clear the framing buffer and the cooldown, and nothing else.

@@ -48,17 +48,19 @@ wake:
   # wrong for a shared room.
   backend: openwakeword
 
-  # A placeholder. openWakeWord's vocabulary is fixed -- as of 0.6 alexa,
-  # hey_jarvis, hey_mycroft, hey_rhasspy -- and none of them is the
-  # character's name. (hey_marvin was, until 0.5 dropped it; alexa would wake
-  # every Echo in the room.) For a real "Amanda": generate a .ppn in the
-  # Picovoice console, set backend to porcupine, and put the path here.
-  keyword: hey_jarvis
+  # "Hey Amanda": a model trained for her, on Windows, by
+  # tools/wakeword/ -- openWakeWord has no such word. A path ending .onnx is
+  # loaded as a model, relative to the orchestrator folder. The stock words
+  # (as of 0.6 alexa, hey_jarvis, hey_mycroft, hey_rhasspy) still work by name.
+  keyword: models/hey_amanda.onnx
 
-  # Measured for hey_jarvis against Piper, 2026-09-11, three runs each: the
-  # wake phrase scored 0.993-0.999, "Hey, are you there?" at most 0.015, and
-  # "Hey Marvin." and an ordinary sentence 0.000. Lower it if it misses you,
-  # raise it if the room sets it off.
+  # Measured for hey_amanda, 2026-09-11, in her own Piper voice (cori, not the
+  # LibriTTS-R voice it was trained on), three runs each: "Hey Amanda" said
+  # four ways 0.974-0.983; "Amanda" with no "hey", Amelia, Samantha, Wanda,
+  # "a banana", "hey Jarvis" and ordinary sentences 0.001-0.035; "Hey man,
+  # how are you?" up to 0.28. But "Hey Miranda" 0.977 -- as high as her name,
+  # so no threshold separates them. Lower it if it misses you, raise it if
+  # the room sets it off.
   threshold: 0.5
 
   # One spoken wake word scores above threshold on several consecutive chunks.
