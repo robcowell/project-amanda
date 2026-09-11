@@ -232,12 +232,12 @@ Each of these cost something to learn.
 - **What the user hears waits for the face.** The cable gets the voice
   immediately and drives the solver; `--monitor` plays a second copy to the
   speakers `--monitor-delay` later so the two land together. Hearing the cable
-  directly (Windows' "Listen to this device") puts the sound ~650ms ahead of the
+  directly (Windows' "Listen to this device") puts the sound ~615ms ahead of the
   mouth -- turn it off when using `--monitor`, or it is heard twice.
 - **The monitor delay is anchored per chunk, not added as silence at open.**
   Silence at open is caught up by the first pause and sync silently stops after
   one sentence. And a barge-in drops the monitor's unplayed backlog, so an
-  interruption is heard to land promptly rather than 650ms late.
+  interruption is heard to land promptly rather than 615ms late.
 - **Filter noise on voiced audio, not buffer length.** An utterance always
   carries its pre-roll and the silence that ended it, so a 0.4s cough arrives
   as a 1.3s buffer. `Utterance.voiced_ms` is the number to threshold.
@@ -299,12 +299,13 @@ machine.
   2026-09-11. Plausibly because those closures happen *before* the burst that
   identifies them, and 80ms is too short to have heard it. Set and persisted by
   `Scripts/set_lookahead.py`, which rebuilds the Live Link preset.
-- **The face runs about 650ms behind the audio at that lookahead** -- found by
-  ear and eye with `--monitor-delay`: 600 early, 700 late, 650 best. Only 240ms
-  of that is lookahead. **The other ~400ms is unaccounted for** (capture buffer,
-  Live Link frame buffering, the solver's pipeline, the editor's frame rate)
-  and all of it is now response time, because the sound the user hears waits
-  for the face. It is the largest unexplained term left in a turn.
+- **The face runs about 615ms behind the audio** at a lookahead of 240ms, with
+  the solver on the CPU -- found by ear with `--monitor-delay`. It was 650 while
+  the GPU solver was dropping frames, then 615 once it kept pace (600 early,
+  630 late). Only 240ms of it is lookahead. **The other ~375ms is unaccounted
+  for** (capture buffer, Live Link frame buffering, the solver's pipeline), and
+  all of it is response time, because the sound the user hears waits for the
+  face. It is the largest unexplained term left in a turn.
 - **The look is Chloe from Detroit: Become Human** -- Rob's reference, 2026-09-11.
   High-key and airy: a large soft key, fill at about a quarter of it, a pale
   out-of-focus sky brighter than the face, a frame about 36cm tall at 85mm
@@ -324,6 +325,18 @@ machine.
   delete a map without saying so.** Rebuilding the look-dev level therefore
   means deleting `Content/Amanda/Maps/LookDev.umap` with the editor closed
   first; the script says so when it hits this.
+- **The speech solver runs on the CPU, not the GPU.** On Windows it defaults
+  to DirectML (`mh.RealtimeAudio.Backend`), sharing the RTX with the render,
+  and processed ~11 frames a second against 50 captured. The audio source keeps
+  only the newest chunk when behind, so her face updated at 11 fps -- the
+  "slow motion" that was blamed on the editor for two days. On
+  `NNERuntimeORTCpu` it holds 45-50. Set in `[SystemSettings]`, because it is
+  read when the Live Link subject starts. Check the subject's `FPS` against its
+  `Capture FPS` whenever the face looks wrong; the plugin itself flags a gap.
+- **Editor throttling is `config=EditorSettings`** -- it lives in
+  `Config/DefaultEditorSettings.ini`. It sat in DefaultEngine.ini for a day,
+  read by nothing. Measured once fixed: 87 fps with the editor in the
+  background and nobody touching it, which is what cleared the editor of blame.
 - **UE 5.8.2 accepted MSVC 14.50 (Visual Studio 2026)** and the 10.0.26100 SDK.
   UE 5.7 documents 14.44 as preferred, so a VS 2022 install had been budgeted
   for and turned out to be unnecessary.
