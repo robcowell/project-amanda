@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -33,6 +34,33 @@ from amanda.audio.tts import (
 log = logging.getLogger(__name__)
 
 _SENTINEL = object()
+
+#: Titles spelled out before Piper sees them. Its espeak phonemiser ends a
+#: sentence at the full stop, so "Dr. Patel said..." was spoken as two
+#: sentences -- "Dr." with falling, final intonation, then a 110ms gap:
+#: measured 1799ms against 1532ms for "Doctor Patel said...", and Rob heard
+#: the pause. The segmenter already knows these are not sentence ends
+#: (`claude.segmenter.ABBREVIATIONS`); this is the same fact, told to the
+#: voice. Only titles, and only before a capitalised name: "St." could be
+#: Saint or Street, and a title with no name after it may really end a
+#: sentence. Only the voice hears this -- the renderer still gets "Dr.".
+TITLES = {
+    "Dr": "Doctor",
+    "Mr": "Mister",
+    "Mrs": "Missus",
+    "Ms": "Miz",
+    "Prof": "Professor",
+    "Rev": "Reverend",
+    "Capt": "Captain",
+    "Sgt": "Sergeant",
+    "Lt": "Lieutenant",
+}
+_TITLE = re.compile(r"\b(" + "|".join(TITLES) + r")\.(?=\s+[A-Z])")
+
+
+def spoken_text(text: str) -> str:
+    """The text as Piper should read it."""
+    return _TITLE.sub(lambda match: TITLES[match.group(1)], text)
 
 
 class _PiperStream(SynthesisStream):
@@ -63,7 +91,7 @@ class _PiperStream(SynthesisStream):
 
         def work() -> None:
             try:
-                for chunk in voice.synthesize(self.text, config):
+                for chunk in voice.synthesize(spoken_text(self.text), config):
                     if self._stop:
                         break
                     if chunk.sample_rate != self.voice.sample_rate:
