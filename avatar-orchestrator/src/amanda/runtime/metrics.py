@@ -81,6 +81,12 @@ class TurnMetrics:
     #: How long the user spoke, and how long the avatar did.
     heard_ms: int | None = None
     spoken_ms: int | None = None
+    #: Whisper's own compute time, beside `stt_ms` (T1 - T0): if they differ,
+    #: the difference was waiting rather than transcribing. And the highest
+    #: temperature it needed -- above 0 means it re-decoded audio it was unsure
+    #: of, which multiplies the cost.
+    stt_compute_ms: int | None = None
+    stt_temperature: float | None = None
     #: Phrases synthesised, and the deepest the queue got waiting for them.
     phrases: int | None = None
     peak_queue_depth: int | None = None
@@ -155,6 +161,8 @@ class TurnMetrics:
             ("cached_tokens", self.cached_tokens),
             ("heard_ms", self.heard_ms),
             ("spoken_ms", self.spoken_ms),
+            ("stt_compute_ms", self.stt_compute_ms),
+            ("stt_temperature", self.stt_temperature),
             ("phrases", self.phrases),
             ("peak_queue_depth", self.peak_queue_depth),
             ("underruns", self.underruns),

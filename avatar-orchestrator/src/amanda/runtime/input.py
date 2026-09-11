@@ -53,6 +53,11 @@ class UserTurn:
     #: Monotonic time the text was ready. T1.
     ready_at: float
     audio_ms: int = 0
+    #: The recogniser's own compute time, against T1 - T0. When the two differ,
+    #: the difference is waiting, not transcribing.
+    stt_compute_ms: int | None = None
+    #: The highest temperature Whisper needed. Above 0 means it re-decoded.
+    stt_temperature: float | None = None
 
     @property
     def empty(self) -> bool:
@@ -304,6 +309,8 @@ class VoiceInput:
                 ended_at=ended_at,
                 ready_at=time.monotonic(),
                 audio_ms=utterance.duration_ms,
+                stt_compute_ms=transcript.elapsed_ms or None,
+                stt_temperature=transcript.max_temperature,
             )
 
     async def wait_for_barge_in(self) -> None:

@@ -44,6 +44,10 @@ class Transcript:
     #: Provider-specific and not comparable between engines. Useful for
     #: rejecting noise the endpointer let through, not for ranking.
     confidence: float | None = None
+    #: The highest temperature any segment was accepted at, where the engine
+    #: reports one. Above 0 means it re-decoded audio it was not sure of --
+    #: the multiplier behind a slow transcription.
+    max_temperature: float | None = None
 
     @property
     def empty(self) -> bool:

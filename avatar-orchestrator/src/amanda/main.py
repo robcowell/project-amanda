@@ -286,6 +286,9 @@ class Session:
         metrics = stream.metrics
         metrics.mark_at(Stage.USER_SPEECH_ENDED, user.ended_at)
         metrics.mark_at(Stage.TRANSCRIPT_FINAL, user.ready_at)
+        # Here rather than in finish(): report() prints before finish() runs.
+        metrics.stt_compute_ms = user.stt_compute_ms
+        metrics.stt_temperature = user.stt_temperature
 
         self.enter(ConversationState.THINKING)
 
@@ -490,7 +493,15 @@ class Session:
         record = metrics.as_dict()
         names = [*SPANS, "total_response_ms"]
         parts = [f"{name}={record[name]}" for name in names if name in record]
-        print(f"  [{'  '.join(parts)}]\n")
+        print(f"  [{'  '.join(parts)}]")
+        if "stt_compute_ms" in record:
+            # Beside stt_ms rather than in the budget: it is part of that span,
+            # and the gap between the two is the diagnosis.
+            print(
+                f"  [whisper computed {record['stt_compute_ms']}ms of that, "
+                f"temperature {record.get('stt_temperature', 0.0)}]"
+            )
+        print()
 
     async def follow_devices(self) -> None:
         """Re-choose devices when headphones come or go, between turns."""

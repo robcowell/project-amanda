@@ -420,11 +420,15 @@ machine.
   was still the cable; disconnecting moved her voice to the speakers and she
   waited, with no microphone to use; reconnecting brought the headset back and
   she heard the next two turns without a restart. Not yet *heard*: her voice on
-  the speakers after a switch -- with no microphone there was no turn. Open:
-  transcripts off the Bluetooth headset came back as fragments ("Shh!", "Mm.")
-  and transcription took 0.5-3.4s against ~0.88 on the laptop. The headset's
-  hands-free mode (telephone-quality audio) is the first suspect, and Whisper's
-  temperature fallback on low-confidence audio the likely cost.
+  the speakers after a switch -- with no microphone there was no turn. Early
+  turns took 2.0-5.1s to transcribe; not reproduced since. Ruled out by
+  measurement: Whisper itself (Piper sentences, clean or telephone-band, ~0.5s),
+  temperature fallback (every segment since decoded at 0.0), the headset mic
+  (`tools/hear.py` on it: ~0.5s, accurate), playback during capture, and
+  Unreal competing for CPU (the editor had closed 12 minutes earlier). Every
+  turn now records Whisper's own `stt_compute_ms` and `stt_temperature` beside
+  `stt_ms`, so a slow one says whether it was transcribing or waiting. On this
+  PC 12 CPU threads measured ~20% faster than the library's default of 4.
 - **UE 5.8.2 accepted MSVC 14.50 (Visual Studio 2026)** and the 10.0.26100 SDK.
   UE 5.7 documents 14.44 as preferred, so a VS 2022 install had been budgeted
   for and turned out to be unnecessary.

@@ -60,6 +60,18 @@ class WhisperRecognizer:
     #: utterances correctly at beam 1 -- and costs latency it cannot afford.
     beam_size: int = 1
 
+    #: CPU threads for CTranslate2. 0 is the library's default of 4, whatever
+    #: the machine -- tuned on an 8-thread ultrabook, and a quarter of the cores
+    #: on the 32-thread renderer PC, where 12 measured ~20% faster.
+    cpu_threads: int = 0
+
+    #: Per-segment detail from the last transcription, for diagnostics:
+    #: (temperature, avg_logprob, compression_ratio, no_speech_prob). A
+    #: temperature above 0 means Whisper was not confident and decoded again.
+    last_segments: list[tuple[float, float, float, float]] = field(
+        default_factory=list, init=False, repr=False
+    )
+
     _model: Any = field(default=None, init=False, repr=False)
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock, init=False, repr=False)
 
@@ -84,7 +96,11 @@ class WhisperRecognizer:
                 log.info("loading whisper model %s (%s)", self.model, self.compute_type)
                 started = time.monotonic()
                 self._model = await asyncio.to_thread(
-                    WhisperModel, self.model, device=self.device, compute_type=self.compute_type
+                    WhisperModel,
+                    self.model,
+                    device=self.device,
+                    compute_type=self.compute_type,
+                    cpu_threads=self.cpu_threads,
                 )
                 log.info("whisper ready in %.1fs", time.monotonic() - started)
             return self._model
@@ -106,6 +122,7 @@ class WhisperRecognizer:
             elapsed_ms=round((time.monotonic() - started) * 1000),
             language=language,
             confidence=confidence,
+            max_temperature=max((t for t, *_ in self.last_segments), default=0.0),
         )
 
     def _run(self, model: Any, utterance: Utterance) -> tuple[str, str | None, float | None]:
@@ -134,6 +151,19 @@ class WhisperRecognizer:
             # makes Whisper loop, repeating a phrase until it fills the buffer.
             condition_on_previous_text=False,
         )
+
+        # A generator: decoding happens as it is consumed, so materialise it
+        # once and read both the text and the diagnostics from the same pass.
+        segments = list(segments)
+        self.last_segments = [
+            (
+                getattr(segment, "temperature", 0.0),
+                getattr(segment, "avg_logprob", 0.0),
+                getattr(segment, "compression_ratio", 0.0),
+                getattr(segment, "no_speech_prob", 0.0),
+            )
+            for segment in segments
+        ]
 
         kept = [
             segment
