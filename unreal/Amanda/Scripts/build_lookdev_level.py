@@ -37,6 +37,14 @@ look-dev scene is for.
 import unreal
 
 LEVEL = "/Game/Amanda/Maps/LookDev"
+
+#: The level is built from Epic's default template rather than from nothing, for
+#: its sky: atmosphere, volumetric clouds and height fog, lit by a sun. An empty
+#: level renders her against black, which Rob called boring -- and the cloud sky
+#: he saw while the editor started up is this template. Its sun and sky light
+#: are then kept off her, so the portrait lighting below is still the only light
+#: on the face. See `adapt_template_sky`.
+SKY_TEMPLATE = "/Engine/Maps/Templates/Template_Default"
 BUILD_PATH = "/Game/MetaHumans"
 
 #: Roughly eye height on a standing adult, in centimetres. Everything is aimed
@@ -47,27 +55,35 @@ EYE_HEIGHT = 160.0
 #: Average scene luminance the camera exposes for. Raise it to darken the
 #: image, lower it to brighten -- it is what the camera assumes the scene is,
 #: not a brightness dial.
-EXPOSURE = 160.0
+EXPOSURE = 200.0
 
 #: Which way the character faces. The assembled Blueprint does not face down
 #: its own +X, so spawning it unrotated puts it in profile to a camera standing
 #: in front of it. Measured off a render rather than reasoned about.
 CHARACTER_YAW = -90.0
 
-#: How far the camera stands back from the face.
+#: How tall the frame is at the face, in centimetres -- the framing dial.
 #:
-#: 250cm was head and shoulders with room to spare. 120cm was too tight -- an
-#: 85mm frame is only 34cm tall there and her hair needs about 31 of them, so
-#: the crown clipped. 145cm gives a 41cm frame: head and hair filling about
-#: three quarters of it, with a hand's width of air above and below.
-CAMERA_DISTANCE = 145.0
+#: Rob's reference is Chloe from Detroit: Become Human. Her close-ups put the
+#: face at about half the frame's height, with hair and a little neck in shot.
+#: 36cm matches that scale. 44cm, the first framing, was head and hair with air
+#: around it; 28cm filled the frame edge to edge and cropped the crown.
+FRAME_HEIGHT = 36.0
 
-#: How far below the eye line to aim, as a fraction of the frame height.
-#:
-#: A sixth puts the eyes on the upper third, which is the portrait convention
-#: and was cropping the crown at this distance. A sixteenth keeps them a little
-#: high without pushing the top of the head out of frame.
-EYE_DROP = 1.0 / 16.0
+#: Where the eyes sit, as a fraction of the frame from the top. A third is the
+#: portrait convention; at this tightness it crops the top of her hair, which is
+#: intended.
+EYES_FROM_TOP = 1.0 / 3.0
+
+#: f/2.8 at about a metre keeps both eyes sharp and melts the sky behind her --
+#: the reference's backgrounds are nothing but soft, pale colour.
+APERTURE = 2.8
+
+#: The sky's sun, in lux. It lights only the sky (see adapt_template_sky), so
+#: this is the background's brightness dial and nothing else. Bracketed on
+#: 2026-09-11 at exposure 200: 300 lux gave a sky of 56/255, 1500 gave 164, 7500
+#: gave 235. The reference wants it a little brighter than her face, ~160.
+SKY_SUN_LUX = 5000.0
 
 #: Epic's own portrait environment, shipped with the character plugin. Ambient
 #: light with some direction in it beats a flat grey constant.
@@ -115,32 +131,40 @@ def add_light(name, location, target, *, lumens, temperature, width, height):
 
 
 def build_lighting(head):
+    # Chloe's key: a big soft source, like a window beside the camera. Its size
+    # is what makes shadows wrap rather than cut, and what puts a large
+    # catchlight in each eye -- much of why eyes read as alive. The morning's
+    # loop light (small, high, eighth-power fill) was a darker film's portrait.
     add_light(
         "Key",
-        unreal.Vector(150.0, -130.0, EYE_HEIGHT + 45.0),
+        unreal.Vector(165.0, -115.0, EYE_HEIGHT + 70.0),
         head,
         lumens=3000.0,
-        temperature=5600.0,
-        width=90.0,
-        height=120.0,
+        temperature=5200.0,
+        width=200.0,
+        height=200.0,
     )
-    # A fill at a quarter of the key is a contrasty, characterful ratio. Raise
-    # it towards the key for something flatter and friendlier; this is the dial
-    # to turn first if the face reads as severe.
+    # High-key wants a strong fill, but not too strong: at half the key the face
+    # lost its shape beside Chloe's, who keeps a shadow side and some contour
+    # under the cheekbone. About a quarter of the key, by the lens, a touch cool
+    # against the warm key. By the lens rather than opposite the key, where it
+    # would be a second key and cancel the shape entirely.
     add_light(
         "Fill",
-        unreal.Vector(140.0, 140.0, EYE_HEIGHT - 10.0),
+        unreal.Vector(220.0, 40.0, EYE_HEIGHT - 20.0),
         head,
-        lumens=1000.0,
-        temperature=6500.0,
-        width=140.0,
-        height=140.0,
+        lumens=800.0,
+        temperature=7000.0,
+        width=200.0,
+        height=200.0,
     )
+    # An edge on the hair to separate it from the sky, not a halo. At 2500
+    # lumens it blew the hair out and bloomed round her head.
     add_light(
         "Rim",
         unreal.Vector(-120.0, 90.0, EYE_HEIGHT + 70.0),
         head,
-        lumens=2500.0,
+        lumens=900.0,
         temperature=7000.0,
         width=40.0,
         height=90.0,
@@ -160,7 +184,10 @@ def build_lighting(head):
         print("###   ambient: Epic's portrait cubemap")
     else:
         print(f"###   ambient: {PORTRAIT_CUBEMAP} not found, using the default sky")
-    component.set_editor_property("intensity", 1.0)
+    # Ambient arrives from everywhere and fills every shadow equally. At 1.0,
+    # under a hard key, it left the face no shape; at 0.6, under a soft key and
+    # a strong fill, it flattened her beside the reference. 0.4.
+    component.set_editor_property("intensity", 0.4)
     component.set_editor_property("real_time_capture", False)
     component.set_editor_property("mobility", unreal.ComponentMobility.MOVABLE)
 
@@ -185,6 +212,11 @@ def pin_exposure():
     settings.set_editor_property("auto_exposure_min_brightness", EXPOSURE)
     settings.set_editor_property("override_auto_exposure_max_brightness", True)
     settings.set_editor_property("auto_exposure_max_brightness", EXPOSURE)
+    # Bloom turned a 2500-lumen rim into a glow round her head. The reference
+    # has a soft glow on its highlights, so some stays; the default (0.675) is a
+    # music video.
+    settings.set_editor_property("override_bloom_intensity", True)
+    settings.set_editor_property("bloom_intensity", 0.3)
     volume.set_editor_property("settings", settings)
     print(f"### exposure pinned at {EXPOSURE:.0f}")
 
@@ -307,44 +339,102 @@ def add_camera(actor):
     eyes = eye_line(actor)
     top = head_top(actor, eyes)
 
-    # Eyes sit roughly 42% of the way down a head measured with its hair, so
-    # the whole head is about this tall, and the frame wants it filling around
-    # three quarters with air top and bottom.
-    head_height = max(18.0, (top - eyes.z) / 0.42)
-    frame_height = head_height / 0.72
-    distance = frame_height / (2.0 * 0.1416)
-
+    # Anchored on the eyes, not the crown: a close-up crops the top of the head
+    # on purpose, and fitting the hair was what kept the old frame loose.
+    distance = FRAME_HEIGHT / (2.0 * 0.1416)
     camera = spawn(
         unreal.CineCameraActor,
         unreal.Vector(eyes.x + distance, 0.0, eyes.z),
     )
     camera.set_actor_label("PortraitCamera")
 
-    # Aim so the frame's top edge clears her hair by a little, rather than
-    # putting the eyes on a rule-of-thirds line and hoping the crown fits.
-    centre = top + frame_height * 0.06 - frame_height * 0.5
+    centre = eyes.z - FRAME_HEIGHT * (0.5 - EYES_FROM_TOP)
     aim(camera, unreal.Vector(eyes.x, 0.0, centre))
-    print(f"###   frame {frame_height:.0f}cm tall at {distance:.0f}cm, centred on {centre:.1f}cm")
+    cropped = top - (centre + FRAME_HEIGHT / 2.0)
+    print(
+        f"###   frame {FRAME_HEIGHT:.0f}cm tall at {distance:.0f}cm, eyes a third down,"
+        f" {max(cropped, 0.0):.1f}cm of hair above the frame"
+    )
 
     component = camera.get_cine_camera_component()
-    # 85mm at two and a half metres: head and shoulders, and the focal length
-    # that does not distort a face the way a wide lens does.
+    # 85mm: the focal length that does not distort a face the way a wide lens
+    # does, even this close.
     component.set_editor_property("current_focal_length", 85.0)
-    component.set_editor_property("current_aperture", 4.0)
+    component.set_editor_property("current_aperture", APERTURE)
     focus = component.get_editor_property("focus_settings")
     focus.set_editor_property("focus_method", unreal.CameraFocusMethod.MANUAL)
     focus.set_editor_property("manual_focus_distance", distance)
     component.set_editor_property("focus_settings", focus)
-    print(f"### camera: 85mm at f/4, {CAMERA_DISTANCE:.0f}cm back, focused on the eyes")
+    # Reports the distance actually used. It used to print a constant the
+    # framing no longer read -- "145cm back" for a camera at 156.
+    print(f"### camera: 85mm at f/{APERTURE:g}, {distance:.0f}cm back, focused on the eyes")
     return camera
+
+
+def adapt_template_sky():
+    """Keep the template's sky as a backdrop and nothing more.
+
+    Its sun must light the atmosphere and clouds but not her: a second key from
+    an arbitrary direction would undo the portrait lighting. So it moves to a
+    lighting channel no mesh is on, casts no shadow, and contributes nothing to
+    global illumination. The atmosphere does not care about lighting channels --
+    it reads the sun through `atmosphere_sun_light` -- so the sky is unchanged.
+
+    The template's sky light captures that sky in real time and would wash her
+    in blue; ours, from the portrait cubemap, replaces it. Its floor is out of
+    frame and only a surface for stray light to bounce off, so it goes too.
+    """
+    subsystem = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
+    for actor in subsystem.get_all_level_actors():
+        kind = actor.get_class().get_name()
+        label = actor.get_actor_label()
+
+        if isinstance(actor, unreal.DirectionalLight):
+            light = actor.get_component_by_class(unreal.DirectionalLightComponent)
+            channels = light.get_editor_property("lighting_channels")
+            channels.set_editor_property("channel0", False)
+            channels.set_editor_property("channel1", True)
+            light.set_editor_property("lighting_channels", channels)
+            light.set_editor_property("cast_shadows", False)
+            light.set_editor_property("indirect_lighting_intensity", 0.0)
+            light.set_editor_property("atmosphere_sun_light", True)
+            light.set_editor_property("intensity", SKY_SUN_LUX)
+            rotation = actor.get_actor_rotation()
+            print(
+                f"###   sun kept for the sky only: {light.get_editor_property('intensity'):.1f}"
+                f" at pitch {rotation.pitch:.0f}, yaw {rotation.yaw:.0f}"
+            )
+        elif isinstance(actor, unreal.SkyLight):
+            subsystem.destroy_actor(actor)
+            print(f"###   removed the template's sky light ({label})")
+        elif isinstance(actor, unreal.StaticMeshActor) and "floor" in label.lower():
+            subsystem.destroy_actor(actor)
+            print(f"###   removed the template's floor ({label})")
+        else:
+            print(f"###   kept {label} ({kind})")
 
 
 def build():
     head = unreal.Vector(0.0, 0.0, EYE_HEIGHT)
 
     levels = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
-    levels.new_level(LEVEL)
-    print(f"### new level {LEVEL}")
+    created = levels.new_level_from_template(LEVEL, SKY_TEMPLATE)
+    if not created and unreal.EditorAssetLibrary.does_asset_exist(LEVEL):
+        # Unlike new_level, creating from a template will not overwrite.
+        unreal.EditorAssetLibrary.delete_asset(LEVEL)
+        created = levels.new_level_from_template(LEVEL, SKY_TEMPLATE)
+    if not created:
+        # delete_asset reports nothing when it declines to delete a map, and
+        # the template call then refuses again. Deleting the file with the
+        # editor closed is what works.
+        print(
+            f"### could not create {LEVEL} from {SKY_TEMPLATE}: an asset is already"
+            " there. Close the editor, delete Content/Amanda/Maps/LookDev.umap, and"
+            " run this again -- the build regenerates everything in it."
+        )
+        return
+    print(f"### new level {LEVEL} from {SKY_TEMPLATE}")
+    adapt_template_sky()
 
     build_lighting(head)
     pin_exposure()

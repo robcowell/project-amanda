@@ -305,6 +305,22 @@ machine.
   Live Link frame buffering, the solver's pipeline, the editor's frame rate)
   and all of it is now response time, because the sound the user hears waits
   for the face. It is the largest unexplained term left in a turn.
+- **The look is Chloe from Detroit: Become Human** -- Rob's reference, 2026-09-11.
+  High-key and airy: a large soft key, fill at about a quarter of it, a pale
+  out-of-focus sky brighter than the face, a frame about 36cm tall at 85mm
+  f/2.8. `Scripts/build_lookdev_level.py` builds it; each number there records
+  what it replaced and why. The camera stays square-on even though Chloe is
+  often shot three-quarter: presence aims her gaze along her head, and for a
+  conversational avatar that is where the user is.
+- **The sky is Epic's `Template_Default`, its sun kept off her.** The sun moves
+  to lighting channel 1 with no shadows and no indirect light, so it lights the
+  atmosphere and clouds and nothing else. That makes the sun's lux a pure
+  background dial -- bracketed at exposure 200: 300 lux gave a sky of 56/255,
+  1500 gave 164, 7500 gave 235, and her face held at 156-157 throughout.
+- **`NewLevelFromTemplate` will not overwrite, and `delete_asset` declines to
+  delete a map without saying so.** Rebuilding the look-dev level therefore
+  means deleting `Content/Amanda/Maps/LookDev.umap` with the editor closed
+  first; the script says so when it hits this.
 - **UE 5.8.2 accepted MSVC 14.50 (Visual Studio 2026)** and the 10.0.26100 SDK.
   UE 5.7 documents 14.44 as preferred, so a VS 2022 install had been budgeted
   for and turned out to be unnecessary.
