@@ -1,4 +1,4 @@
-"""Put the head rotation after the face's control rig, where it survives.
+r"""Put the head rotation after the face's control rig, where it survives.
 
 The main animation graph turns the head correctly and the renderer shows the
 reference pose, because `ABP_Face_PostProcess` runs a Control Rig afterwards and
@@ -10,27 +10,32 @@ stays bit-identical to the reference pose frame after frame.
 So the rotation has to happen on the far side of that rig. This takes our own
 copy of Epic's post-process blueprint, reparents it onto
 `UAmandaFaceAnimInstance` -- keeping the control rig graph exactly as shipped --
-and binds it as the face's post-process override. The copy lives in
-/Game/Amanda, so unlike the original it is not derived data and survives a
-rebuild of the character.
+and makes it the face mesh's post-process blueprint. The copy lives in
+/Game/Amanda, so unlike the original it is not derived data.
 
 The two copies split the work: the main blueprint writes curves, which are
 *input* to the rig, and this one poses the head, which is output.
 
-    "D:\unreal\UE_5.8\Engine\Binaries\Win64\UnrealEditor.exe" ^
-        "D:\code\project-amanda\unreal\Amanda\Amanda.uproject" ^
-        -ExecCmds="py D:\code\project-amanda\unreal\Amanda\Scripts\bind_face_post.py"
+Why the mesh asset and not the component: the component's
+`OverridePostProcessAnimBP` is `UPROPERTY(transient)`. It is never saved, so
+setting it on the Blueprint template would be discarded the moment the
+MetaHuman reconstructs its components -- the same trap `bind_face_blueprint.py`
+documents for `anim_class`, one level down.
 
-Like `bind_face_blueprint.py`, this edits `BP_MHC_Seo` under /Game/MetaHumans,
-which assembly rebuilds and git ignores -- so it is part of the pipeline, not a
-one-off. Run it after the character is assembled, every time.
+    UnrealEditor.exe Amanda.uproject -ExecCmds="py Scripts/bind_face_post.py"
+
+The face mesh lives under /Game/MetaHumans, which assembly rebuilds and git
+ignores -- so this is part of the pipeline, not a one-off. Run it after the
+character is assembled, every time.
 """
 
 import os
 
 import unreal
 
-CHARACTER_BP = os.environ.get("AMANDA_CHARACTER_BP", "/Game/MetaHumans/MHC_Seo/BP_MHC_Seo")
+FACE_MESH = os.environ.get(
+    "AMANDA_FACE_MESH", "/Game/MetaHumans/MHC_Seo/Face/SKM_MHC_Seo_FaceMesh"
+)
 SOURCE_POST_ABP = "/Game/MetaHumans/Common/Face/ABP_Face_PostProcess"
 POST_ABP = "/Game/Amanda/ABP_AmandaFacePost"
 MAIN_ABP = "/Game/Amanda/ABP_AmandaFace"
@@ -55,28 +60,22 @@ def our_copy():
 
 def reparent(blueprint, halves):
     """Reparent onto our class and set which half of the job it does."""
-    parent = unreal.AmandaFaceAnimInstance.static_class()
-    if blueprint.get_editor_property("parent_class") != parent:
-        unreal.BlueprintEditorLibrary.reparent_blueprint(blueprint, parent)
-        print(f"### reparented {blueprint.get_name()} -> AmandaFaceAnimInstance")
+    # The current parent cannot be read from Python, and reparenting to the
+    # class it already has is a no-op -- so just do it, and verify afterwards by
+    # reading back properties that only exist on our class.
+    unreal.BlueprintEditorLibrary.reparent_blueprint(blueprint, unreal.AmandaFaceAnimInstance)
+    unreal.BlueprintEditorLibrary.compile_blueprint(blueprint)
 
-    defaults = unreal.BlueprintEditorLibrary.get_blueprint_class_default_object(blueprint)
+    defaults = unreal.get_default_object(blueprint.generated_class())
     for name, value in halves.items():
         defaults.set_editor_property(name, value)
-    print(f"### {blueprint.get_name()}: {halves}")
 
     unreal.BlueprintEditorLibrary.compile_blueprint(blueprint)
-    unreal.EditorAssetLibrary.save_loaded_asset(blueprint, only_if_is_dirty=False)
+    saved = unreal.EditorAssetLibrary.save_loaded_asset(blueprint, only_if_is_dirty=False)
 
-
-def face_template(blueprint):
-    subsystem = unreal.get_engine_subsystem(unreal.SubobjectDataSubsystem)
-    for handle in subsystem.k2_gather_subobject_data_for_blueprint(blueprint):
-        data = subsystem.k2_find_subobject_data_from_handle(handle)
-        obj = unreal.SubobjectDataBlueprintFunctionLibrary.get_object(data)
-        if isinstance(obj, unreal.SkeletalMeshComponent) and "face" in obj.get_name().lower():
-            return obj
-    return None
+    check = unreal.get_default_object(blueprint.generated_class())
+    read = {name: check.get_editor_property(name) for name in halves}
+    print(f"### {blueprint.get_name()}: {read} saved={saved}")
 
 
 def run():
@@ -84,33 +83,22 @@ def run():
     if post is None:
         return
     # The rig overwrites bones, so the head belongs here and nowhere else.
-    reparent(post, {"b_apply_curves": False, "b_apply_head_rotation": True})
+    reparent(post, {"bApplyCurves": False, "bApplyHeadRotation": True})
 
     main = unreal.load_asset(MAIN_ABP)
     if main is not None:
         # And here it would only be thrown away, so do not spend the frame.
-        reparent(main, {"b_apply_curves": True, "b_apply_head_rotation": False})
+        reparent(main, {"bApplyCurves": True, "bApplyHeadRotation": False})
 
-    character = unreal.load_asset(CHARACTER_BP)
-    if character is None:
-        print(f"### {CHARACTER_BP} not found -- assemble the character first")
+    mesh = unreal.load_asset(FACE_MESH)
+    if mesh is None:
+        print(f"### {FACE_MESH} not found -- assemble the character first")
         return
 
-    face = face_template(character)
-    if face is None:
-        print("### no Face component template found")
-        return
-
-    # On the Blueprint's template, not the placed actor: the MetaHuman
-    # reconstructs its components when the world starts ticking and a
-    # per-instance override is discarded at exactly that moment.
-    face.set_editor_property("override_post_process_anim_bp", post.generated_class())
-    got = face.get_editor_property("override_post_process_anim_bp")
-    print(f"### face post-process override -> {got.get_name() if got else None}")
-
-    unreal.BlueprintEditorLibrary.compile_blueprint(character)
-    saved = unreal.EditorAssetLibrary.save_loaded_asset(character, only_if_is_dirty=False)
-    print(f"### compiled and saved {CHARACTER_BP}: {saved}")
+    mesh.set_editor_property("post_process_anim_blueprint", post.generated_class())
+    got = mesh.get_editor_property("post_process_anim_blueprint")
+    saved = unreal.EditorAssetLibrary.save_loaded_asset(mesh, only_if_is_dirty=False)
+    print(f"### face mesh post-process -> {got.get_name() if got else None}: saved {saved}")
 
 
 def tick(delta_seconds):
