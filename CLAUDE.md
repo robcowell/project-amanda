@@ -276,16 +276,18 @@ machine.
   ~1.3s and 17 output tokens with a schema, ~1.6s and 71 without. Told in prose
   to answer in one line it still explained itself, at 92 tokens. Constraining
   the shape is what stops the model editorialising.
-- **Whether the face's Control Rig overwrites the head is unknown -- the test
-  that "proved" it was broken.** The claim, recorded here until 2026-09-11, was
-  that `ABP_Face_PostProcess` rewrites the head after the animation blueprint,
-  because a native anim proxy turning the bone left it bit-identical to the
-  reference pose. But that proxy overrode `Evaluate`, called the base -- which
-  evaluates nothing and returns false -- and returned false, so the engine then
-  evaluated the graph *over* every change it had made (see the next entry).
-  The rig may well still overwrite the head; nothing has shown it yet. Re-test
-  with `Scripts/probe_head_bone.py` now that the proxy runs after the graph.
-  The face mesh is on Epic's `ABP_Face_PostProcess`.
+- **The face's Control Rig overwrites the head -- proven on the second try.**
+  `ABP_Face_PostProcess` runs after the animation blueprint and writes the head
+  bone. The first test (2026-09-10) could not show that: its native proxy ran
+  *before* the graph (see the next entry), so nothing it did survived anyway.
+  Re-tested 2026-09-11 with the proxy fixed -- and demonstrably after the graph,
+  since the same proxy's rest-floor remap finds and moves 7 of 7 mouth curves:
+  `bDrivingHead=True`, the bone turned, and `face.head` still bit-identical to
+  the reference pose in every sample. Anything that has to survive belongs on
+  the far side of that rig. `Scripts/bind_face_post.py` puts our class on a
+  reparented copy of the post-process blueprint; it was tried once with the
+  broken proxy, so it has never had a fair test. The face mesh is on Epic's
+  `ABP_Face_PostProcess`.
 - **A native anim proxy must evaluate the graph itself.** Override
   `Evaluate_WithRoot`, call `EvaluateAnimationNode_WithRoot` first, change the
   pose or curves, and return true. The base `Evaluate` returns false without
