@@ -166,6 +166,16 @@ def default_voice() -> str | None:
     return _default_entry().get("model") or None
 
 
+def cable_device() -> str | None:
+    """The virtual cable her voice goes into, from config/voices.yaml.
+
+    Used only when a device by that name exists: a machine without one, like
+    the laptop, plays her voice to its default output instead.
+    """
+    value = load("voices.yaml").get("output_device")
+    return str(value) if value else None
+
+
 def claude_settings() -> dict[str, Any]:
     """The `claude:` block from config/avatar.yaml.
 

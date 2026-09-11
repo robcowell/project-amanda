@@ -241,6 +241,22 @@ Each of these cost something to learn.
 - **Filter noise on voiced audio, not buffer length.** An utterance always
   carries its pre-roll and the silence that ended it, so a 0.4s cough arrives
   as a 1.3s buffer. `Utterance.voiced_ms` is the number to threshold.
+- **The microphone is never guessed.** On a headset, the headset's own mic;
+  otherwise Windows' default recording device; never a virtual cable, and
+  never "some other input" -- an audio interface's inputs exist with nothing
+  plugged into them (Rob: "no focusrite mic attached - don't assume"). With
+  neither, she says which Windows setting to change and waits. The microphone
+  follows the *output* because Windows makes Bluetooth headphones the default
+  output on connect and leaves the default input alone -- on the renderer PC,
+  on the cable, so "use the default microphone" had her hearing herself.
+- **Devices follow Windows, between turns.** PortAudio lists devices once, at
+  start; restarting it is the only refresh and needs every stream closed. So a
+  registry watcher notices endpoints connecting or dropping, the switch waits
+  for `audio_lock` (held for a whole turn), and `VoiceInput.switch_microphone`
+  restarts capture without the reader stopping being taken for the user going
+  away. Pairing is within one host API's list: Windows lists each device once
+  per audio API, and its "Sound Mapper" entries are aliases for the default --
+  the cable again. See `audio/devices.py`.
 
 ## Measured, not assumed
 
@@ -359,7 +375,17 @@ machine.
   1.08 against Chloe's 1.07, hue 337 against 330. Lower white balance is
   cooler, as on a camera; positive tint is magenta. The camera stays square-on even though Chloe is
   often shot three-quarter: presence aims her gaze along her head, and for a
-  conversational avatar that is where the user is.
+  conversational avatar that is where the user is. Quantic Dream's own account
+  (blog.quanticdream.com/how-chloe-became-human) agrees on the eyes: the facial
+  animator hand-worked mostly the eyes, "since in the menu Chloe looks directly
+  at the camera", and the close-ups were for "the impression of being in front
+  of a living, expressive actor". Three things there not yet copied: their
+  camera tracked her nose, because micro-movements kept pushing her out of
+  frame -- likely needed now the head moves at 2.5x inside a 36cm frame; no
+  makeup, to "remain natural" -- Amanda's winged liner and eyeshadow pull the
+  other way, and changing them is a MetaHuman re-assembly; and awareness from
+  the console clock -- the day of the week, the time since the last visit --
+  which for us is the orchestrator's job, and cheap.
 - **The sky is Epic's `Template_Default`, its sun kept off her.** The sun moves
   to lighting channel 1 with no shadows and no indirect light, so it lights the
   atmosphere and clouds and nothing else. That makes the sun's lux a pure
@@ -389,6 +415,16 @@ machine.
   at the variable's existing priority. It lives in `DefaultGameUserSettings.ini`
   for fresh clones; an existing machine's `Saved/.../GameUserSettings.ini`
   overrides that and needed the same edit. Measured: 59.8-60.0 fps, from ~86.
+- **Device following, verified on the renderer PC 2026-09-11,** with no device
+  flags at all: headset mic and headphones chosen while Windows' default input
+  was still the cable; disconnecting moved her voice to the speakers and she
+  waited, with no microphone to use; reconnecting brought the headset back and
+  she heard the next two turns without a restart. Not yet *heard*: her voice on
+  the speakers after a switch -- with no microphone there was no turn. Open:
+  transcripts off the Bluetooth headset came back as fragments ("Shh!", "Mm.")
+  and transcription took 0.5-3.4s against ~0.88 on the laptop. The headset's
+  hands-free mode (telephone-quality audio) is the first suspect, and Whisper's
+  temperature fallback on low-confidence audio the likely cost.
 - **UE 5.8.2 accepted MSVC 14.50 (Visual Studio 2026)** and the 10.0.26100 SDK.
   UE 5.7 documents 14.44 as preferred, so a VS 2022 install had been budgeted
   for and turned out to be unnecessary.

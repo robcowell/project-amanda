@@ -27,6 +27,7 @@ import contextlib
 import logging
 import sys
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
@@ -207,6 +208,9 @@ class VoiceInput:
     _reader: asyncio.Task[None] | None = field(default=None, init=False, repr=False)
     _interrupted: asyncio.Event = field(default_factory=asyncio.Event, init=False)
     _armed: bool = field(default=False, init=False)
+    #: Set while the microphone is being moved to another device, so the reader
+    #: stopping is not mistaken for the user going away.
+    _switching: bool = field(default=False, init=False)
 
     #: Utterances dropped for being too short, too quiet, or unheard because
     #: the wake word had not been said.
@@ -238,6 +242,29 @@ class VoiceInput:
                 await self._reader
             self._reader = None
         await self.microphone.stop()
+
+    async def switch_microphone(self, reopen: Callable[[], str | int | None]) -> None:
+        """Move to another input device without ending the conversation.
+
+        `reopen` runs with the stream closed -- the one moment PortAudio can be
+        restarted to see new devices -- and returns the device to open next.
+        Anything half-heard on the old device is discarded rather than spliced
+        onto the new one.
+        """
+        self._switching = True
+        try:
+            if self._reader is not None:
+                self._reader.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await self._reader
+                self._reader = None
+            await self.microphone.stop()
+            self.endpointer.reset()
+            self.microphone.device = reopen()
+            await self.microphone.start()
+            self._reader = asyncio.create_task(self._read(), name="microphone")
+        finally:
+            self._switching = False
 
     async def next_turn(self) -> UserTurn | None:
         """Wait for a complete utterance and transcribe it."""
@@ -312,4 +339,7 @@ class VoiceInput:
         except Exception:
             log.exception("microphone reader failed")
         finally:
-            self._utterances.put_nowait(None)
+            # End of the stream means the user has gone -- unless the stream
+            # only stopped because the device is being switched.
+            if not self._switching:
+                self._utterances.put_nowait(None)

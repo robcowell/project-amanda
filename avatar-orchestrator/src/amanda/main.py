@@ -22,8 +22,9 @@ import contextlib
 import logging
 import uuid
 
+from amanda.audio import devices
 from amanda.audio.engines import ENGINES, build, describe
-from amanda.audio.microphone import Microphone
+from amanda.audio.microphone import Microphone, MicrophoneError
 from amanda.audio.sink import DeviceSink, MonitorSink, NullSink
 from amanda.audio.speech import SpeechSession
 from amanda.audio.stt import build as build_recognizer
@@ -34,7 +35,7 @@ from amanda.avatar.websocket import DEFAULT_HOST, DEFAULT_PORT, AvatarBridge
 from amanda.claude.conversation import Conversation
 from amanda.claude.scripted import ScriptedClient
 from amanda.claude.segmenter import PhraseSegmenter
-from amanda.config import load_env
+from amanda.config import cable_device, load_env
 from amanda.performance.director import MIN_REPLY_CHARS, Director
 from amanda.performance.director import build as build_director
 from amanda.runtime.input import ConversationInput, TypedInput, UserTurn, VoiceInput
@@ -90,6 +91,14 @@ class Session:
             args.engine, voice_id=args.voice_id, sample_rate=args.rate
         )
         self.director: Director = self._build_director()
+        #: Which microphone, which output to hear her on, and the cable --
+        #: chosen now and re-chosen when devices come and go. See
+        #: audio/devices.py.
+        self.route = self._choose_route()
+        self.watcher = devices.DeviceWatcher()
+        #: Held for a whole turn and for a device switch, so a switch never
+        #: restarts PortAudio under an open stream.
+        self.audio_lock = asyncio.Lock()
         self.input: ConversationInput = self._build_input()
         self.session_id = f"s_{uuid.uuid4().hex[:8]}"
         self.telemetry = TurnLog.from_config(
@@ -112,11 +121,54 @@ class Session:
         from amanda.config import wake_settings
 
         return VoiceInput(
-            microphone=Microphone(device=self.args.input_device),
+            microphone=Microphone(device=self._microphone_device()),
             recognizer=build_recognizer(self.args.stt),
             wake=build_wake(self.args.wake),
             awake_seconds=float(wake_settings().get("awake_seconds", 45.0)),
         )
+
+    def _choose_route(self, need_microphone: bool | None = None) -> devices.AudioRoute | None:
+        """The devices for this moment. None when there is nothing to choose."""
+        if self.args.no_audio and not self.args.voice:
+            return None
+        try:
+            found, default_in, default_out = devices.current_devices()
+        except Exception as exc:  # noqa: BLE001 - no PortAudio: typed and silent still run
+            log.warning("could not list audio devices: %s", exc)
+            return None
+        return devices.choose_route(
+            found,
+            default_in,
+            default_out,
+            cable=self.args.device or cable_device(),
+            require_cable=self.args.device is not None,
+            microphone=self.args.input_device,
+            listen=self.args.monitor,
+            need_microphone=self.args.voice if need_microphone is None else need_microphone,
+        )
+
+    def _microphone_device(self) -> int | str | None:
+        if self.route is not None and self.route.microphone is not None:
+            return self.route.microphone.index
+        return self.args.input_device
+
+    def describe_route(self) -> str:
+        route = self.route
+        if route is None:
+            return "  audio: default devices"
+        lines = []
+        if route.microphone is not None:
+            lines.append(f"listening on {route.microphone.name}")
+        if route.cable is None:
+            lines.append(f"voice on {route.listen.name} (no virtual cable, so no Unreal lip sync)")
+        elif self.args.no_monitor:
+            lines.append(f"voice into {route.cable.name} for the face, not played aloud")
+        else:
+            lines.append(
+                f"voice into {route.cable.name} for the face; heard on "
+                f"{route.listen.name}, {self.args.monitor_delay}ms later"
+            )
+        return "\n".join(f"  {line}" for line in lines)
 
     # ----------------------------------------------------------------- #
 
@@ -129,16 +181,21 @@ class Session:
             # Paced, so an interruption still lands partway through rather than
             # after an utterance that "finished" the moment it was synthesised.
             return NullSink(realtime=True)
-        sink = DeviceSink(device=self.args.device)
-        if self.args.monitor:
-            # The cable drives the face; the monitor is what a person hears,
-            # held back to land with the mouth. See MonitorSink.
-            return MonitorSink(
-                primary=sink,
-                monitor=DeviceSink(device=self.args.monitor),
-                delay_ms=self.args.monitor_delay,
-            )
-        return sink
+        route = self.route
+        if route is None:
+            return DeviceSink(device=self.args.device)
+        if route.cable is None:
+            return DeviceSink(device=route.listen.index)
+        sink = DeviceSink(device=route.cable.index)
+        if self.args.no_monitor:
+            return sink
+        # The cable drives the face; the monitor is what a person hears, held
+        # back to land with the mouth. See MonitorSink.
+        return MonitorSink(
+            primary=sink,
+            monitor=DeviceSink(device=route.listen.index),
+            delay_ms=self.args.monitor_delay,
+        )
 
     async def run(self) -> int:
         async with self.bridge:
@@ -148,6 +205,7 @@ class Session:
                 f"at {self.voice.sample_rate} Hz"
             )
             print(f"performance director: {self.director.name}")
+            print(self.describe_route())
 
             warm = getattr(self.synthesizer, "warm", None)
             if warm is not None:
@@ -185,9 +243,17 @@ class Session:
             self.bridge.send(UserDetected(present=True))
             self.enter(ConversationState.ATTENTIVE)
 
+            follow = None
+            if self.route is not None and await self.watcher.start():
+                follow = asyncio.create_task(self.follow_devices(), name="devices")
             try:
                 await self.loop()
             finally:
+                if follow is not None:
+                    follow.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await follow
+                await self.watcher.stop()
                 await self.input.stop()
                 self.telemetry.close()
                 self.bridge.send(SessionEnded(session_id=self.session_id, reason="quit"))
@@ -210,7 +276,8 @@ class Session:
 
             if self.args.voice:
                 print(f"> {turn.text}")
-            await self.turn(turn)
+            async with self.audio_lock:
+                await self.turn(turn)
 
     async def turn(self, user: UserTurn) -> None:
         """One exchange, from what the user said to the avatar settling."""
@@ -425,6 +492,49 @@ class Session:
         parts = [f"{name}={record[name]}" for name in names if name in record]
         print(f"  [{'  '.join(parts)}]\n")
 
+    async def follow_devices(self) -> None:
+        """Re-choose devices when headphones come or go, between turns."""
+        while True:
+            await self.watcher.changed.wait()
+            # Headphones become the default output a moment after they
+            # connect; switching on the first sign would pick the old one.
+            await asyncio.sleep(devices.SETTLE_SECONDS)
+            self.watcher.changed.clear()
+            async with self.audio_lock:
+                await self.switch_devices()
+
+    async def switch_devices(self) -> None:
+        """Restart PortAudio so it sees the change, and move to the new route.
+
+        Only called holding `audio_lock`, so no turn has a stream open. The
+        microphone is closed around the restart by VoiceInput, which keeps the
+        conversation going across it.
+        """
+        before = self.route
+
+        def reopen() -> int | str | None:
+            devices.reinitialise()
+            try:
+                self.route = self._choose_route()
+            except devices.DeviceError:
+                # No microphone right now. Her voice still has to follow the
+                # outputs -- the old indices died with the restart -- and she
+                # waits, deaf, for the next change to bring a microphone.
+                self.route = self._choose_route(need_microphone=False)
+                raise
+            return self._microphone_device()
+
+        try:
+            if isinstance(self.input, VoiceInput):
+                await self.input.switch_microphone(reopen)
+            else:
+                reopen()
+        except (devices.DeviceError, MicrophoneError) as exc:
+            print(f"\n  [audio: {exc} -- waiting for a device]")
+            return
+        if self.route != before:
+            print(f"\n  [audio devices changed]\n{self.describe_route()}")
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -442,15 +552,28 @@ def main() -> int:
         "--director",
         help="performance classifier: claude, scripted, none, or auto (the default)",
     )
-    parser.add_argument("--input-device", help="microphone, by index or name fragment")
+    parser.add_argument(
+        "--input-device",
+        help="microphone, by name fragment (default: the one on the device you are "
+        "listening through; never a virtual cable)",
+    )
     parser.add_argument(
         "--engine", default="auto", choices=["auto", *sorted(ENGINES)],
         help="; ".join(describe()),
     )
     parser.add_argument("--voice-id", help="engine-specific voice id or model path")
-    parser.add_argument("--device", help="output device, by index or name fragment")
     parser.add_argument(
-        "--monitor", help="also play to this device, delayed to land with the face"
+        "--device",
+        help="the virtual cable her face is driven from, by name fragment "
+        "(default: output_device in config/voices.yaml, used if present)",
+    )
+    parser.add_argument(
+        "--monitor",
+        help="where you hear her, by name fragment (default: Windows' default output)",
+    )
+    parser.add_argument(
+        "--no-monitor", action="store_true",
+        help="send her voice to the cable only, without playing it aloud",
     )
     parser.add_argument(
         # Measured by eye on 2026-09-11 at a solver lookahead of 240ms: 650 while
@@ -493,6 +616,10 @@ def main() -> int:
     except SynthesisError as exc:
         # A voice that cannot be built is a startup problem with a fix in it,
         # not a crash. Say the sentence, not the traceback.
+        print(f"{exc}")
+        return 2
+    except devices.DeviceError as exc:
+        # Same: no microphone, or a choice that would have her hear herself.
         print(f"{exc}")
         return 2
     return 0

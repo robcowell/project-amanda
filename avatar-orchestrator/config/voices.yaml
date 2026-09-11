@@ -6,11 +6,13 @@
 
 default: amanda
 
-# Where the avatar's voice goes. On the Windows box this is the virtual audio
-# cable Unreal reads as a microphone -- a name fragment is enough, so "cable
-# input" matches "CABLE Input (VB-Audio Virtual Cable)". Null means the system
-# default output, which is what you want while developing without Unreal.
-output_device: null
+# The virtual audio cable Unreal reads as a microphone, which is what drives the
+# face. A name fragment: "cable input" matches "CABLE Input (VB-Audio Virtual
+# Cable)". Used when a device by that name exists; then a second copy plays,
+# delayed to meet the face, on whatever you are listening through. Without
+# one -- the laptop -- her voice just plays on the default output. Everything
+# else (microphone, speakers, headphones) follows Windows; see audio/devices.py.
+output_device: "cable input"
 
 # Fade applied when speech is cancelled. Short, because barge-in should feel
 # like being interrupted rather than like a media player fading out. Perceived
